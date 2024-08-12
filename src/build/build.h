@@ -376,13 +376,6 @@ static const char *target_desc[6] = {
 };
 
 
-typedef struct ProjectSubcommandOptions_
-{
-	ProjectSubcommand command;
-	const char *target_name;
-	TargetType target_type;
-} ProjectSubcommandOptions;
-
 typedef struct BuildOptions_
 {
 	const char *lib_dir[MAX_BUILD_LIB_DIRS];
@@ -432,7 +425,12 @@ typedef struct BuildOptions_
 	bool silence_deprecation;
 	CompilerBackend backend;
 	CompilerCommand command;
-	ProjectSubcommandOptions project_options;
+	struct
+	{
+		ProjectSubcommand command;
+		const char *target_name;
+		TargetType target_type;
+	} project_options;
 	CompileOption compile_option;
 	TrustLevel trust_level;
 	DiagnosticsSeverity severity[DIAG_END_SENTINEL];
@@ -711,3 +709,4 @@ void create_project(BuildOptions *build_options);
 void create_library(BuildOptions *build_options);
 void resolve_libraries(BuildTarget *build_target);
 void view_project(BuildOptions *build_options);
+void add_target_project(BuildOptions *build_options);
