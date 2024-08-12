@@ -11,7 +11,7 @@
 #define GET_SETTING(type__, key__, strings__, comment__) \
   (type__)get_valid_string_setting(PROJECT_JSON, target_name, json, key__, strings__, 0, ELEMENTLEN(strings__), comment__)
 
-const char *project_default_keys[][2] = {
+const char* project_default_keys[][2] = {
 		{"authors", "Authors, optionally with email."},
 		{"benchfn", "Override the benchmark function."},
 		{"c-sources", "Set the C sources to be compiled."},
@@ -134,7 +134,7 @@ const int project_target_keys_count = ELEMENTLEN(project_target_keys);
 const int project_deprecated_target_keys_count = ELEMENTLEN(project_deprecated_target_keys);
 
 
-static void load_into_build_target(JSONObject *json, const char *target_name, BuildTarget *target)
+static void load_into_build_target(JSONObject* json, const char* target_name, BuildTarget* target)
 {
 	if (target_name)
 	{
@@ -150,12 +150,12 @@ static void load_into_build_target(JSONObject *json, const char *target_name, Bu
 
 	// Exec
 	get_list_append_strings(PROJECT_JSON, target_name, json, &target->exec, "exec", "exec-override", "exec-add");
-	
-	target->output_dir = get_string(PROJECT_JSON, target_name, json,"output", target->output_dir);
+
+	target->output_dir = get_string(PROJECT_JSON, target_name, json, "output", target->output_dir);
 
 	// CFlags
 	target->cflags = get_cflags(PROJECT_JSON, target_name, json, target->cflags);
-	
+
 	// C source dirs.
 	get_list_append_strings(PROJECT_JSON, target_name, json, &target->csource_dirs, "c-sources", "c-sources-override", "c-sources-add");
 
@@ -176,18 +176,18 @@ static void load_into_build_target(JSONObject *json, const char *target_name, Bu
 
 	// Dependencies
 	get_list_append_strings(PROJECT_JSON, target_name, json, &target->libs, "dependencies", "dependencies-override", "dependencies-add");
-	FOREACH(const char *, name, target->libs)
+	FOREACH(const char*, name, target->libs)
 	{
 		if (!str_is_valid_lowercase_name(name))
 		{
-			char *name_copy = strdup(name);
+			char* name_copy = strdup(name);
 			str_ellide_in_place(name_copy, 32);
 			error_exit("Error reading %s: invalid library target '%s'.", PROJECT_JSON, name_copy);
 		}
 	}
 
 	// debug-info
-	static const char *debug_infos[3] = {
+	static const char* debug_infos[3] = {
 			[DEBUG_INFO_FULL] = "full",
 			[DEBUG_INFO_NONE] = "none",
 			[DEBUG_INFO_LINE_TABLES] = "line-tables"
@@ -202,7 +202,7 @@ static void load_into_build_target(JSONObject *json, const char *target_name, Bu
 	// Size optimization
 	target->optsize = GET_SETTING(SizeOptimizationLevel, "optsize", optlevels, "`none`, `small`, `tiny`.");
 
-	static const char *opt_settings[8] = {
+	static const char* opt_settings[8] = {
 			[OPT_SETTING_O0] = "O0",
 			[OPT_SETTING_O1] = "O1",
 			[OPT_SETTING_O2] = "O2",
@@ -219,14 +219,14 @@ static void load_into_build_target(JSONObject *json, const char *target_name, Bu
 	target->feature.safe_mode = (SafetyLevel)get_valid_bool(PROJECT_JSON, target_name, json, "safe", target->feature.safe_mode);
 
 	// Backtrace
-	target->show_backtrace = (ShowBacktrace) get_valid_bool(PROJECT_JSON, target_name, json, "show-backtrace", target->show_backtrace);
+	target->show_backtrace = (ShowBacktrace)get_valid_bool(PROJECT_JSON, target_name, json, "show-backtrace", target->show_backtrace);
 
 	// Panic level
 	target->feature.panic_level = (PanicLevel)get_valid_bool(PROJECT_JSON, target_name, json, "panic-msg",
-	                                                          target->feature.panic_level);
+		target->feature.panic_level);
 
 	// Single module
-	target->single_module = (SingleModule) get_valid_bool(PROJECT_JSON, target_name, json, "single-module", target->single_module);
+	target->single_module = (SingleModule)get_valid_bool(PROJECT_JSON, target_name, json, "single-module", target->single_module);
 
 	// Memory environment for memory constrained environments.
 	MemoryEnvironment env = GET_SETTING(MemoryEnvironment, "memory-env", memory_environment, "one of 'normal', 'small', 'tiny' or 'none'.");
@@ -248,7 +248,7 @@ static void load_into_build_target(JSONObject *json, const char *target_name, Bu
 	}
 
 	// Target
-	const char *arch_os_string = get_optional_string(PROJECT_JSON, target_name, json, "target");
+	const char* arch_os_string = get_optional_string(PROJECT_JSON, target_name, json, "target");
 	if (arch_os_string)
 	{
 		ArchOsTarget arch_os = arch_os_target_from_string(arch_os_string);
@@ -271,10 +271,10 @@ static void load_into_build_target(JSONObject *json, const char *target_name, Bu
 	FpOpt fpmath = GET_SETTING(FpOpt, "fp-math", fp_math, "`strict`, `relaxed` or `fast`.");
 	if (fpmath > -1) target->feature.fp_math = fpmath;
 
-	const char **features = get_optional_string_array(PROJECT_JSON, target_name, json, "features");
+	const char** features = get_optional_string_array(PROJECT_JSON, target_name, json, "features");
 	if (features)
 	{
-		FOREACH(const char *, feature, features)
+		FOREACH(const char*, feature, features)
 		{
 			if (!str_is_valid_constant(feature))
 			{
@@ -333,13 +333,13 @@ static void load_into_build_target(JSONObject *json, const char *target_name, Bu
 	target->benchfn = get_string(PROJECT_JSON, target_name, json, "benchfn", target->benchfn);
 
 	// link-libc
-	target->link_libc = (LinkLibc) get_valid_bool(PROJECT_JSON, target_name, json, "link-libc", target->link_libc);
+	target->link_libc = (LinkLibc)get_valid_bool(PROJECT_JSON, target_name, json, "link-libc", target->link_libc);
 
 	// strip-unused
-	target->strip_unused = (StripUnused) get_valid_bool(PROJECT_JSON, target_name, json, "strip-unused", target->strip_unused);
+	target->strip_unused = (StripUnused)get_valid_bool(PROJECT_JSON, target_name, json, "strip-unused", target->strip_unused);
 
 	// linker
-	const char *linker_selection = get_optional_string(PROJECT_JSON, target_name, json, "linker");
+	const char* linker_selection = get_optional_string(PROJECT_JSON, target_name, json, "linker");
 	if (linker_selection)
 	{
 		if (str_eq("cc", linker_selection))
@@ -363,34 +363,34 @@ static void load_into_build_target(JSONObject *json, const char *target_name, Bu
 	target->no_entry = get_valid_bool(PROJECT_JSON, target_name, json, "no-entry", target->no_entry);
 
 	// use-stdlib
-	target->use_stdlib = (UseStdlib) get_valid_bool(PROJECT_JSON, target_name, json, "use-stdlib", target->use_stdlib);
+	target->use_stdlib = (UseStdlib)get_valid_bool(PROJECT_JSON, target_name, json, "use-stdlib", target->use_stdlib);
 
 	// emit-stdlib
-	target->emit_stdlib = (EmitStdlib) get_valid_bool(PROJECT_JSON, target_name, json, "emit-stdlib", target->emit_stdlib);
+	target->emit_stdlib = (EmitStdlib)get_valid_bool(PROJECT_JSON, target_name, json, "emit-stdlib", target->emit_stdlib);
 
 	// single-module
-	target->single_module = (SingleModule) get_valid_bool(PROJECT_JSON, target_name, json, "single-module", target->single_module);
+	target->single_module = (SingleModule)get_valid_bool(PROJECT_JSON, target_name, json, "single-module", target->single_module);
 
 	// Trap on wrap
 	target->feature.trap_on_wrap = get_valid_bool(PROJECT_JSON, target_name, json, "trap-on-wrap", target->feature.trap_on_wrap);
 
 	// Use the fact that they correspond to 0, 1, -1
 	target->feature.x86_struct_return = get_valid_bool(PROJECT_JSON, target_name, json, "x86-stack-struct-return",
-	                                                   target->feature.x86_struct_return);
+		target->feature.x86_struct_return);
 	target->feature.soft_float = get_valid_bool(PROJECT_JSON, target_name, json, "soft-float", target->feature.soft_float);
 	target->feature.pass_win64_simd_as_arrays = get_valid_bool(PROJECT_JSON, target_name, json, "win64-simd-array",
-	                                                           target->feature.pass_win64_simd_as_arrays);
+		target->feature.pass_win64_simd_as_arrays);
 
 }
-static void project_add_target(Project *project, BuildTarget *default_target,  JSONObject *json, const char *name, const char *type, TargetType target_type)
+static void project_add_target(Project* project, BuildTarget* default_target, JSONObject* json, const char* name, const char* type, TargetType target_type)
 {
 	assert(json->type == J_OBJECT);
-	BuildTarget *target = CALLOCS(BuildTarget);
+	BuildTarget* target = CALLOCS(BuildTarget);
 	*target = *default_target;
 	vec_add(project->targets, target);
 	target->name = name;
 	target->type = target_type;
-	FOREACH(BuildTarget *, other_target, project->targets)
+	FOREACH(BuildTarget*, other_target, project->targets)
 	{
 		if (other_target == target) continue;
 		if (strcmp(other_target->name, target->name) == 0)
@@ -402,13 +402,13 @@ static void project_add_target(Project *project, BuildTarget *default_target,  J
 	load_into_build_target(json, type, target);
 }
 
-static void project_add_targets(Project *project, JSONObject *project_data)
+static void project_add_targets(Project* project, JSONObject* project_data)
 {
 	assert(project_data->type == J_OBJECT);
 
 	BuildTarget default_target = default_build_target;
 	load_into_build_target(project_data, NULL, &default_target);
-	JSONObject *targets_json = json_obj_get(project_data, "targets");
+	JSONObject* targets_json = json_obj_get(project_data, "targets");
 	if (!targets_json)
 	{
 		error_exit("No targets found in project.");
@@ -419,8 +419,8 @@ static void project_add_targets(Project *project, JSONObject *project_data)
 	}
 	for (unsigned i = 0; i < targets_json->member_len; i++)
 	{
-		JSONObject *object = targets_json->members[i];
-		const char *key = targets_json->keys[i];
+		JSONObject* object = targets_json->members[i];
+		const char* key = targets_json->keys[i];
 		if (object->type != J_OBJECT)
 		{
 			error_exit("Invalid data in target '%s'", key);
@@ -438,9 +438,9 @@ static void project_add_targets(Project *project, JSONObject *project_data)
  * @param project
  * @return the selected build target.
  */
-static BuildTarget *project_select_default_target(Project *project)
+static BuildTarget* project_select_default_target(Project* project)
 {
-	FOREACH(BuildTarget *, target, project->targets)
+	FOREACH(BuildTarget*, target, project->targets)
 	{
 		if (target->type == TARGET_TYPE_EXECUTABLE) return target;
 	}
@@ -455,7 +455,7 @@ static BuildTarget *project_select_default_target(Project *project)
  * @param optional_target the selected target, may be NULL.
  * @return the target if one is provided, otherwise the default target.
  */
-BuildTarget *project_select_target(Project *project, const char *optional_target)
+BuildTarget* project_select_target(Project* project, const char* optional_target)
 {
 	if (!vec_size(project->targets))
 	{
@@ -465,21 +465,21 @@ BuildTarget *project_select_target(Project *project, const char *optional_target
 	{
 		return project_select_default_target(project);
 	}
-	FOREACH(BuildTarget *, target, project->targets)
+	FOREACH(BuildTarget*, target, project->targets)
 	{
 		if (str_eq(target->name, optional_target)) return target;
 	}
 	error_exit("No build target named '%s' was found in %s. Was it misspelled?", optional_target, PROJECT_JSON);
 }
 
-Project *project_load(void)
+Project* project_load(void)
 {
-	Project *project = CALLOCS(Project);
+	Project* project = CALLOCS(Project);
 	size_t size;
-	char *read = file_read_all(PROJECT_JSON, &size);
+	char* read = file_read_all(PROJECT_JSON, &size);
 	JsonParser parser;
 	json_init_string(&parser, read, &malloc_arena);
-	JSONObject *json = json_parse(&parser);
+	JSONObject* json = json_parse(&parser);
 	if (parser.error_message)
 	{
 		error_exit("Error on line %d reading '%s':'%s'", parser.line, PROJECT_JSON, parser.error_message);
