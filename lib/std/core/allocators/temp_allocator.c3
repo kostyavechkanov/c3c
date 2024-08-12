@@ -45,6 +45,13 @@ fn TempAllocator*! new_temp_allocator(usz size, Allocator allocator)
 	return temp;
 }
 
+fn void TempAllocator.destroy(&self)
+{
+	self.reset(0);
+	if (self.last_page) (void)self._free_page(self.last_page);
+	allocator::free(self.backing_allocator, self);
+}
+
 fn usz TempAllocator.mark(&self) @dynamic => self.used;
 
 fn void TempAllocator.release(&self, void* old_pointer, bool) @dynamic
@@ -58,6 +65,16 @@ fn void TempAllocator.release(&self, void* old_pointer, bool) @dynamic
 fn void TempAllocator.reset(&self, usz mark) @dynamic
 {
 	TempAllocatorPage *last_page = self.last_page;
+	$if env::COMPILER_SAFE_MODE:
+		if (!last_page)
+		{
+			usz cleaned = self.used - mark;
+			if (cleaned > 0)
+			{
+				self.data[mark : cleaned] = 0xAA;
+			}
+		}
+	$endif
 	while (last_page && last_page.mark > mark)
 	{
 		TempAllocatorPage *to_free = last_page;

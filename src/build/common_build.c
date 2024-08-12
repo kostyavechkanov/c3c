@@ -2,7 +2,8 @@
 #include "utils/common.h"
 #include <math.h>
 
-void check_json_keys(const char *valid_keys[][2], size_t key_count, const char *deprecated_keys[], size_t deprecated_key_count, JSONObject *json, const char *target_name, const char *option)
+
+void check_json_keys(const char* valid_keys[][2], size_t key_count, const char* deprecated_keys[], size_t deprecated_key_count, JSONObject *json, const char *target_name, const char *option)
 {
 	static bool failed_shown = false;
 	bool failed = false;
@@ -17,13 +18,14 @@ void check_json_keys(const char *valid_keys[][2], size_t key_count, const char *
 		{
 			if (str_eq(key, deprecated_keys[j]))
 			{
+				if (silence_deprecation) goto OK;
 				WARNING("Target '%s' is using the deprecated parameter '%s'.", target_name, key);
 				goto OK;
 			}
 		}
-		WARNING("Unknown parameter '%s' in '%s'", target_name, key);
+		WARNING("Unknown parameter '%s' in '%s'", key, target_name);
 		failed = true;
-	OK:;
+		OK:;
 	}
 	if (failed && !failed_shown)
 	{
@@ -56,7 +58,7 @@ const char *get_mandatory_string(const char *file, const char *category, JSONObj
 }
 
 const char *get_string(const char *file, const char *category, JSONObject *table, const char *key,
-	const char *default_value)
+                       const char *default_value)
 {
 	const char *value = get_optional_string(file, category, table, key);
 	return value ? value : default_value;
@@ -132,13 +134,13 @@ const char *get_cflags(const char *file, const char *target, JSONObject *json, c
 	return cflags_add;
 }
 
-INLINE void append_strings_to_strings(const char ***list_of_strings_ptr, const char **strings_to_append)
+INLINE void append_strings_to_strings(const char*** list_of_strings_ptr, const char **strings_to_append)
 {
 	FOREACH(const char *, string, strings_to_append) vec_add(*list_of_strings_ptr, string);
 }
 
 void get_list_append_strings(const char *file, const char *target, JSONObject *json, const char ***list_ptr,
-	const char *base, const char *override, const char *add)
+                             const char *base, const char *override, const char *add)
 {
 	const char **value = get_optional_string_array(file, target, json, target ? override : base);
 	const char **add_value = target ? get_optional_string_array(file, target, json, base) : NULL;
@@ -160,7 +162,7 @@ void get_list_append_strings(const char *file, const char *target, JSONObject *j
 	}
 }
 
-int get_valid_string_setting(const char *file, const char *target, JSONObject *json, const char *key, const char **values, int first_result, int count, const char *expected)
+int get_valid_string_setting(const char *file, const char *target, JSONObject *json, const char *key, const char** values, int first_result, int count, const char *expected)
 {
 	JSONObject *value = json_obj_get(json, key);
 	if (!value)

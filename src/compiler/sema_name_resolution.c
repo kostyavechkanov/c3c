@@ -32,8 +32,8 @@ static inline bool matches_subpath(Path *path_to_check, Path *path_to_find)
 
 Decl *sema_decl_stack_resolve_symbol(const char *symbol)
 {
-	Decl **current = global_context.decl_stack_top;
-	Decl **end = global_context.decl_stack_bottom;
+	Decl **current = compiler.context.decl_stack_top;
+	Decl **end = compiler.context.decl_stack_bottom;
 	while (current > end)
 	{
 		Decl *decl = *(--current);
@@ -44,29 +44,42 @@ Decl *sema_decl_stack_resolve_symbol(const char *symbol)
 
 Decl **sema_decl_stack_store(void)
 {
-	Decl **current_bottom = global_context.decl_stack_bottom;
-	global_context.decl_stack_bottom = global_context.decl_stack_top;
+	Decl **current_bottom = compiler.context.decl_stack_bottom;
+	compiler.context.decl_stack_bottom = compiler.context.decl_stack_top;
 	return current_bottom;
 }
 
 void sema_decl_stack_restore(Decl **state)
 {
-	global_context.decl_stack_top = global_context.decl_stack_bottom;
-	global_context.decl_stack_bottom = state;
+	compiler.context.decl_stack_top = compiler.context.decl_stack_bottom;
+	compiler.context.decl_stack_bottom = state;
 }
 
 void sema_decl_stack_push(Decl *decl)
 {
-	Decl **current = global_context.decl_stack_top;
-	if (current == &global_context.decl_stack[MAX_GLOBAL_DECL_STACK])
+	Decl **current = compiler.context.decl_stack_top;
+	if (current == &compiler.context.decl_stack[MAX_GLOBAL_DECL_STACK])
 	{
 		error_exit("Declaration stack exhausted.");
 	}
 	*(current++) = decl;
-	global_context.decl_stack_top = current;
+	compiler.context.decl_stack_top = current;
 }
 
-static void add_members_to_decl_stack(Decl *decl)
+static bool add_interface_to_decl_stack(SemaContext *context, Decl *decl)
+{
+	FOREACH(TypeInfo *, parent_interface, decl->interfaces)
+	{
+		if (!sema_resolve_type_info(context, parent_interface, RESOLVE_TYPE_DEFAULT)) return false;
+		Decl *inf = parent_interface->type->decl;
+		if (!sema_analyse_decl(context, inf)) return false;
+		add_interface_to_decl_stack(context, inf);
+	}
+	FOREACH(Decl *, interface, decl->interface_methods) sema_decl_stack_push(interface);
+	return true;
+}
+
+static bool add_members_to_decl_stack(SemaContext *context, Decl *decl)
 {
 	FOREACH(Decl *, func, decl->methods)
 	{
@@ -84,14 +97,7 @@ static void add_members_to_decl_stack(Decl *decl)
 	}
 	if (decl->decl_kind == DECL_INTERFACE)
 	{
-		FOREACH(TypeInfo *, parent_interface, decl->interfaces)
-		{
-			FOREACH(Decl *, interface, parent_interface->type->decl->interface_methods)
-			{
-				sema_decl_stack_push(interface);
-			}
-		}
-		FOREACH(Decl *, interface, decl->interface_methods) sema_decl_stack_push(interface);
+		if (!add_interface_to_decl_stack(context, decl)) return false;
 	}
 	if (decl_is_struct_type(decl) || decl->decl_kind == DECL_BITSTRUCT)
 	{
@@ -99,18 +105,19 @@ static void add_members_to_decl_stack(Decl *decl)
 		{
 			if (member->name == NULL)
 			{
-				add_members_to_decl_stack(member);
+				if (!add_members_to_decl_stack(context, member)) return false;
 				continue;
 			}
 			sema_decl_stack_push(member);
 		}
 	}
+	return true;
 }
 
-Decl *sema_decl_stack_find_decl_member(Decl *decl_owner, const char *symbol)
+Decl *sema_decl_stack_find_decl_member(SemaContext *context, Decl *decl_owner, const char *symbol)
 {
 	Decl **state = sema_decl_stack_store();
-	add_members_to_decl_stack(decl_owner);
+	if (!add_members_to_decl_stack(context, decl_owner)) return poisoned_decl;
 	Decl *member = sema_decl_stack_resolve_symbol(symbol);
 	sema_decl_stack_restore(state);
 	return member;
@@ -385,10 +392,10 @@ static bool sema_resolve_path_symbol(SemaContext *context, NameResolve *name_res
 
 	const char *symbol = name_resolve->symbol;
 	// 0. std module special handling.
-	if (path->module == global_context.std_module_path.module)
+	if (path->module == compiler.context.std_module_path.module)
 	{
-		name_resolve->path_found = &global_context.std_module;
-		name_resolve->found = module_find_symbol(&global_context.std_module, symbol);
+		name_resolve->path_found = &compiler.context.std_module;
+		name_resolve->found = module_find_symbol(&compiler.context.std_module, symbol);
 		return true;
 	}
 
@@ -407,7 +414,7 @@ static bool sema_resolve_path_symbol(SemaContext *context, NameResolve *name_res
 
 	// 4. Go to global search
 	if (name_resolve->found) return true;
-	return sema_find_decl_in_global(context, &global_context.symbols, global_context.module_list,
+	return sema_find_decl_in_global(context, &compiler.context.symbols, compiler.context.module_list,
 	                                name_resolve, false);
 }
 
@@ -481,7 +488,7 @@ static bool sema_resolve_no_path_symbol(SemaContext *context, NameResolve *name_
 	if (!sema_find_decl_in_private_imports(context, name_resolve, false)) return false;
 	if (name_resolve->found) return true;
 
-	return sema_find_decl_in_global(context, &global_context.symbols, NULL, name_resolve, false);
+	return sema_find_decl_in_global(context, &compiler.context.symbols, NULL, name_resolve, false);
 }
 
 #define MAX_TEST 256
@@ -675,7 +682,7 @@ INLINE bool sema_resolve_symbol_common(SemaContext *context, NameResolve *name_r
 		{
 			if (name_resolve->suppress_error) return true;
 			Module *module_with_path = NULL;
-			FOREACH(Module *, module, global_context.module_list)
+			FOREACH(Module *, module, compiler.context.module_list)
 			{
 				if (matches_subpath(module->name, name_resolve->path))
 				{
@@ -685,7 +692,7 @@ INLINE bool sema_resolve_symbol_common(SemaContext *context, NameResolve *name_r
 			}
 			if (!module_with_path)
 			{
-				FOREACH(Module *, module, global_context.generic_module_list)
+				FOREACH(Module *, module, compiler.context.generic_module_list)
 				{
 					if (matches_subpath(module->name, name_resolve->path))
 					{
@@ -734,13 +741,6 @@ Decl *sema_find_extension_method_in_list(Decl **extensions, Type *type, const ch
 	return NULL;
 }
 
-typedef enum
-{
-	METHOD_SEARCH_SUBMODULE_CURRENT,
-	METHOD_SEARCH_IMPORTED,
-	METHOD_SEARCH_CURRENT,
-	METHOD_SEARCH_PRIVATE_IMPORTED
-} MethodSearchType;
 
 
 Decl *sema_resolve_method_in_module(Module *module, Type *actual_type, const char *method_name,
@@ -916,8 +916,8 @@ Decl *sema_resolve_type_method(CompilationUnit *unit, Type *type, const char *me
 	}
 	if (!found)
 	{
-		found = sema_resolve_method_in_module(global_context.core_module, type, method_name,
-											  &private, &ambiguous, METHOD_SEARCH_IMPORTED);
+		found = sema_resolve_method_in_module(compiler.context.core_module, type, method_name,
+		                                      &private, &ambiguous, METHOD_SEARCH_IMPORTED);
 	}
 	if (found && ambiguous)
 	{
@@ -926,7 +926,7 @@ Decl *sema_resolve_type_method(CompilationUnit *unit, Type *type, const char *me
 	}
 	if (!found)
 	{
-		found = sema_find_extension_method_in_list(global_context.method_extensions, type, method_name);
+		found = sema_find_extension_method_in_list(compiler.context.method_extensions, type, method_name);
 		private = NULL;
 	}
 	if (private) *private_ref = private;
@@ -957,8 +957,8 @@ bool unit_resolve_parameterized_symbol(SemaContext *context, NameResolve *name_r
 	if (!sema_find_decl_in_private_imports(context, name_resolve, true)) return false;
 	if (!name_resolve->found)
 	{
-		if (!sema_find_decl_in_global(context, &global_context.generic_symbols,
-		                                global_context.generic_module_list,
+		if (!sema_find_decl_in_global(context, &compiler.context.generic_symbols,
+		                                compiler.context.generic_module_list,
 		                                name_resolve, true)) return false;
 	}
 	// 14. Error report

@@ -631,6 +631,7 @@ static inline bool sema_expr_valid_try_expression(Expr *expr)
 		case EXPR_POST_UNARY:
 		case EXPR_TERNARY:
 		case EXPR_LAST_FAULT:
+		case EXPR_TAGOF:
 			return false;
 		case EXPR_BITACCESS:
 		case EXPR_BUILTIN:
@@ -2198,12 +2199,12 @@ static inline bool sema_check_value_case(SemaContext *context, Type *switch_type
 			sema_error_at(context, extend_span_with_token(expr->span, to_expr->span),
 						  "The range is not valid because the first value (%s) is greater than the second (%s). "
 						  "It would work if you swapped their order.",
-						  int_to_str(const_expr->ixx, 10),
-						  int_to_str(to_const_expr->ixx, 10));
+						  int_to_str(const_expr->ixx, 10, false),
+						  int_to_str(to_const_expr->ixx, 10, false));
 			return false;
 		}
 		Int128 range = int_sub(to_const_expr->ixx, const_expr->ixx).i;
-		Int128 max_range = { .low = active_target.switchrange_max_size };
+		Int128 max_range = { .low = compiler.build.switchrange_max_size };
 		if (i128_comp(range, max_range, type_i128) == CMP_GT)
 		{
 			*max_ranged = true;
@@ -2774,7 +2775,7 @@ bool sema_analyse_ct_echo_stmt(SemaContext *context, Ast *statement)
 			printf("%f\n", (double)message->const_expr.fxx.f);
 			break;
 		case CONST_INTEGER:
-			puts(int_to_str(message->const_expr.ixx, 10));
+			puts(int_to_str(message->const_expr.ixx, 10, false));
 			break;
 		case CONST_BOOL:
 			puts(message->const_expr.b ? "true" : "false");

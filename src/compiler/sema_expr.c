@@ -8,13 +8,6 @@
 #define RETURN_SEMA_FUNC_ERROR(_decl, _node, ...) do { sema_error_at(context, (_node)->span, __VA_ARGS__); SEMA_NOTE(_decl, "The definition was here."); return false; } while (0)
 #define RETURN_NOTE_FUNC_DEFINITION do { SEMA_NOTE(callee->definition, "The definition was here."); return false; } while (0);
 
-typedef enum
-{
-	SUBSCRIPT_EVAL_VALUE,
-	SUBSCRIPT_EVAL_REF,
-	SUBSCRIPT_EVAL_ASSIGN,
-	SUBSCRIPT_EVAL_VALID,
-} SubscriptEval;
 
 typedef struct
 {
@@ -588,6 +581,7 @@ static bool sema_binary_is_expr_lvalue(SemaContext *context, Expr *top_expr, Exp
 		case EXPR_SLICE_ASSIGN:
 		case EXPR_SLICE_COPY:
 		case EXPR_STRINGIFY:
+		case EXPR_TAGOF:
 		case EXPR_TERNARY:
 		case EXPR_TRY_UNWRAP:
 		case EXPR_TRY_UNWRAP_CHAIN:
@@ -618,6 +612,7 @@ static bool expr_may_ref(Expr *expr)
 		case EXPR_CT_IDENT:
 		case EXPR_EMBED:
 		case EXPR_DEFAULT_ARG:
+		case EXPR_TAGOF:
 			return false;
 		case EXPR_OTHER_CONTEXT:
 			return expr_may_ref(expr->expr_other_context.inner);
@@ -2450,6 +2445,7 @@ bool sema_expr_analyse_general_call(SemaContext *context, Expr *expr, Decl *decl
 		                                  type_flatten(exprptr(expr->call_expr.function)->type), optional,
 		                                  no_match_ref);
 	}
+	if (!sema_analyse_decl(context, decl)) return false;
 	switch (decl->decl_kind)
 	{
 		case DECL_MACRO:
@@ -2476,11 +2472,52 @@ bool sema_expr_analyse_general_call(SemaContext *context, Expr *expr, Decl *decl
 	}
 }
 
+static inline bool sema_expr_analyse_tagof(SemaContext *context, Expr *expr)
+{
+	expr->call_expr.arguments = sema_expand_vasplat_exprs(context, expr->call_expr.arguments);
+	Expr **args = expr->call_expr.arguments;
+	unsigned arg_count = vec_size(args);
+	Expr *tag = exprptr(expr->call_expr.function);
+	Decl *decl = tag->tag_of_expr.type;
+	bool is_has = tag->tag_of_expr.property == TYPE_PROPERTY_HAS_TAGOF;
+	const char *name = is_has ? "has_tagof" : "tagof";
+	if (arg_count != 1) RETURN_SEMA_ERROR(expr, "Expected a single string argument to '%s'.", name);
+	Expr *key = args[0];
+	if (!sema_analyse_expr(context, key)) return false;
+	if (!sema_cast_const(key) || !expr_is_const_string(key))
+	{
+		RETURN_SEMA_ERROR(key, "The tag name should be a string constant.");
+	}
+	assert(decl->resolved_attributes);
+	ResolvedAttrData *attrs = decl->attrs_resolved;
+	const char *tagname = key->const_expr.bytes.ptr;
+	if (!attrs || !attrs->tags) goto NOT_FOUND;
+	Expr *value = NULL;
+	FOREACH(Attr *, attr, attrs->tags)
+	{
+		if (str_eq(attr->exprs[0]->const_expr.bytes.ptr, tagname)) value = attr->exprs[1];
+	}
+	if (!value) goto NOT_FOUND;
+	if (is_has)
+	{
+		expr_rewrite_const_bool(expr, type_bool, true);
+		return true;
+	}
+	expr_replace(expr, expr_copy(value));
+	return true;
+NOT_FOUND:
+	if (is_has)
+	{
+		expr_rewrite_const_bool(expr, type_bool, false);
+		return true;
+	}
+	RETURN_SEMA_ERROR(expr, "The tag '%s' is not defined, always check with '.has_tagof'.", tagname);
+}
+
 static inline bool sema_expr_analyse_call(SemaContext *context, Expr *expr, bool *no_match_ref)
 {
 	if (no_match_ref) *no_match_ref = true;
 	Expr *func_expr = exprptr(expr->call_expr.function);
-
 	if (!sema_analyse_expr_lvalue_fold_const(context, func_expr)) return false;
 	if (func_expr->expr_kind == EXPR_MACRO_BODY_EXPANSION)
 	{
@@ -2491,6 +2528,8 @@ static inline bool sema_expr_analyse_call(SemaContext *context, Expr *expr, bool
 	Expr *struct_var = NULL;
 	switch (func_expr->expr_kind)
 	{
+		case EXPR_TAGOF:
+			return sema_expr_analyse_tagof(context, expr);
 		case EXPR_BUILTIN:
 			return sema_expr_analyse_builtin_call(context, expr);
 		case EXPR_IDENTIFIER:
@@ -3318,7 +3357,8 @@ static inline bool sema_expr_analyse_type_access(SemaContext *context, Expr *exp
 			UNREACHABLE
 	}
 
-	Decl *member = sema_decl_stack_find_decl_member(decl, name);
+	Decl *member = sema_decl_stack_find_decl_member(context, decl, name);
+	if (!decl_ok(member)) return false;
 	if (!member)
 	{
 		Decl *ambiguous = NULL;
@@ -3391,6 +3431,11 @@ static inline bool sema_expr_analyse_member_access(SemaContext *context, Expr *e
 	TypeProperty type_property = type_property_by_name(name);
 	switch (type_property)
 	{
+		case TYPE_PROPERTY_TAGOF:
+		case TYPE_PROPERTY_HAS_TAGOF:
+			expr->expr_kind = EXPR_TAGOF;
+			expr->tag_of_expr = (ExprTagOf) { .type = decl, .property = type_property };
+			return true;
 		case TYPE_PROPERTY_NONE:
 			break;
 		case TYPE_PROPERTY_QNAMEOF:
@@ -3440,7 +3485,8 @@ static inline bool sema_expr_analyse_member_access(SemaContext *context, Expr *e
 	}
 
 	Decl *underlying_type_decl = underlying_type->decl;
-	Decl *member = sema_decl_stack_find_decl_member(underlying_type_decl, name);
+	Decl *member = sema_decl_stack_find_decl_member(context, underlying_type_decl, name);
+	if (!decl_ok(member)) return false;
 	if (!member || !(decl_is_struct_type(member) || member->decl_kind == DECL_VAR || member->decl_kind == DECL_BITSTRUCT))
 	{
 		if (missing_ref) goto MISSING_REF;
@@ -3869,6 +3915,8 @@ static bool sema_expr_rewrite_to_typeid_property(SemaContext *context, Expr *exp
 		case TYPE_PROPERTY_MEMBERSOF:
 		case TYPE_PROPERTY_METHODSOF:
 		case TYPE_PROPERTY_EXTNAMEOF:
+		case TYPE_PROPERTY_TAGOF:
+		case TYPE_PROPERTY_HAS_TAGOF:
 		case TYPE_PROPERTY_NAMEOF:
 		case TYPE_PROPERTY_QNAMEOF:
 		case TYPE_PROPERTY_ASSOCIATED:
@@ -4117,6 +4165,8 @@ static bool sema_type_property_is_valid_for_type(Type *original_type, TypeProper
 		case TYPE_PROPERTY_PARAMS:
 		case TYPE_PROPERTY_RETURNS:
 			return type_is_func_ptr(type);
+		case TYPE_PROPERTY_TAGOF:
+		case TYPE_PROPERTY_HAS_TAGOF:
 		case TYPE_PROPERTY_EXTNAMEOF:
 			return !type_is_builtin(type->type_kind);
 	}
@@ -4221,6 +4271,15 @@ static bool sema_expr_rewrite_to_type_property(SemaContext *context, Expr *expr,
 			assert(!type_is_builtin(type->type_kind));
 			if (!sema_resolve_type_decl(context, type)) return false;
 			sema_expr_rewrite_to_type_nameof(expr, type, TOKEN_CT_EXTNAMEOF);
+			return true;
+		case TYPE_PROPERTY_TAGOF:
+		case TYPE_PROPERTY_HAS_TAGOF:
+			expr->expr_kind = EXPR_TAGOF;
+			expr->tag_of_expr = (ExprTagOf) {
+				.type = type->type_kind == TYPE_FUNC_PTR
+						? type->pointer->function.decl
+						: type->decl,
+				.property = property };
 			return true;
 		case TYPE_PROPERTY_NONE:
 			return false;
@@ -4610,7 +4669,8 @@ CHECK_DEEPER:
 	// 10. Dump all members and methods into a decl stack.
 	Decl *decl = type->decl;
 
-	Decl *member = sema_decl_stack_find_decl_member(decl, kw);
+	Decl *member = sema_decl_stack_find_decl_member(context, decl, kw);
+	if (!decl_ok(member)) return false;
 	if (member && decl_is_enum_kind(decl) && member->decl_kind == DECL_VAR && sema_cast_const(parent))
 	{
 		if (!sema_analyse_decl(context, decl)) return false;
@@ -5950,9 +6010,8 @@ static bool sema_expr_analyse_mod(SemaContext *context, Expr *expr, Expr *left, 
 			expr->const_expr.fxx = float_rem(left->const_expr.fxx, right->const_expr.fxx);
 		}
 	}
-	else
+	else if (type_is_integer(flat))
 	{
-		assert(type_is_integer(flat));
 		// 3. a % 0 is not valid, so detect it.
 		if (sema_cast_const(right) && int_is_zero(right->const_expr.ixx)) RETURN_SEMA_ERROR(right, "Cannot perform %% with a constant zero.");
 
@@ -6949,7 +7008,7 @@ static inline bool sema_expr_analyse_ct_and_or(SemaContext *context, Expr *expr,
 	return true;
 }
 
-typedef enum ConcatType_
+typedef enum
 {
 	CONCAT_UNKNOWN,
 	CONCAT_JOIN_BYTES,
@@ -7831,7 +7890,7 @@ static inline bool sema_expr_analyse_compiler_const(SemaContext *context, Expr *
 			UNREACHABLE
 		case BUILTIN_DEF_NONE:
 		{
-			Expr *value = htable_get(&global_context.compiler_defines, (void *)string);
+			Expr *value = htable_get(&compiler.context.compiler_defines, (void *)string);
 			if (!value)
 			{
 				if (report_missing)
@@ -7845,7 +7904,7 @@ static inline bool sema_expr_analyse_compiler_const(SemaContext *context, Expr *
 		}
 
 		case BUILTIN_DEF_BENCHMARK_NAMES:
-			if (!active_target.benchmarking)
+			if (!compiler.build.benchmarking)
 			{
 				expr->const_expr.const_kind = CONST_INITIALIZER;
 				expr->expr_kind = EXPR_CONST;
@@ -7860,7 +7919,7 @@ static inline bool sema_expr_analyse_compiler_const(SemaContext *context, Expr *
 			expr->expr_kind = EXPR_BENCHMARK_HOOK;
 			return true;
 		case BUILTIN_DEF_BENCHMARK_FNS:
-			if (!active_target.benchmarking)
+			if (!compiler.build.benchmarking)
 			{
 				expr->const_expr.const_kind = CONST_INITIALIZER;
 				expr->expr_kind = EXPR_CONST;
@@ -7875,7 +7934,7 @@ static inline bool sema_expr_analyse_compiler_const(SemaContext *context, Expr *
 			expr->expr_kind = EXPR_BENCHMARK_HOOK;
 			return true;
 		case BUILTIN_DEF_TEST_NAMES:
-			if (!active_target.testing)
+			if (!compiler.build.testing)
 			{
 				expr->const_expr.const_kind = CONST_INITIALIZER;
 				expr->expr_kind = EXPR_CONST;
@@ -7890,7 +7949,7 @@ static inline bool sema_expr_analyse_compiler_const(SemaContext *context, Expr *
 			expr->expr_kind = EXPR_TEST_HOOK;
 			return true;
 		case BUILTIN_DEF_TEST_FNS:
-			if (!active_target.testing)
+			if (!compiler.build.testing)
 			{
 				expr->const_expr.const_kind = CONST_INITIALIZER;
 				expr->expr_kind = EXPR_CONST;
@@ -8034,7 +8093,8 @@ static inline bool sema_expr_analyse_decl_element(SemaContext *context, Designat
 		}
 		return false;
 	}
-	Decl *member = sema_decl_stack_find_decl_member(actual_type->decl, kw);
+	Decl *member = sema_decl_stack_find_decl_member(context, actual_type->decl, kw);
+	if (!decl_ok(member)) return false;
 	if (!member)
 	{
 		Decl *ambiguous = NULL;
@@ -8482,7 +8542,7 @@ static inline bool sema_expr_analyse_embed(SemaContext *context, Expr *expr, boo
 	if (!content)
 	{
 		if (!allow_fail) RETURN_SEMA_ERROR(expr, "Failed to load '%s'.", string);
-		if (!global_context.io_error_file_not_found)
+		if (!compiler.context.io_error_file_not_found)
 		{
 			Module *module = global_context_find_module(kw_std__io);
 			Decl *io_error = module ? module_find_symbol(module, kw_IoError) : NULL;
@@ -8498,9 +8558,9 @@ static inline bool sema_expr_analyse_embed(SemaContext *context, Expr *expr, boo
 					}
 				}
 			}
-			global_context.io_error_file_not_found = fault;
+			compiler.context.io_error_file_not_found = fault;
 		}
-		if (!decl_ok(global_context.io_error_file_not_found))
+		if (!decl_ok(compiler.context.io_error_file_not_found))
 		{
 			RETURN_SEMA_ERROR(expr, "Cannot generate an optional result, no IoError.FILE_NOT_FOUND could be located.");
 		}
@@ -8509,7 +8569,7 @@ static inline bool sema_expr_analyse_embed(SemaContext *context, Expr *expr, boo
 		filename->expr_kind = EXPR_CONST;
 		filename->const_expr.const_kind = CONST_ERR;
 		expr->type = type_wildcard_optional;
-		filename->const_expr.enum_err_val = global_context.io_error_file_not_found;
+		filename->const_expr.enum_err_val = compiler.context.io_error_file_not_found;
 		filename->resolve_status = RESOLVE_DONE;
 		expr->resolve_status = RESOLVE_DONE;
 		return true;
@@ -8683,7 +8743,7 @@ static inline bool sema_expr_analyse_ct_feature(SemaContext *context, Expr *expr
 	if (!inner->identifier_expr.is_const) goto ERROR;
 
 	const char *name = inner->identifier_expr.ident;
-	void *value = htable_get(&global_context.features, (void *)name);
+	void *value = htable_get(&compiler.context.features, (void *)name);
 	assert(!value || value == name);
 	expr_rewrite_const_bool(expr, type_bool, value != NULL);
 	return true;
@@ -8876,6 +8936,7 @@ static inline bool sema_expr_analyse_ct_defined(SemaContext *context, Expr *expr
 			case EXPR_POST_UNARY:
 			case EXPR_TYPEID:
 			case EXPR_TYPEID_INFO:
+			case EXPR_TAGOF:
 				if (!sema_analyse_expr(active_context, main_expr)) return false;
 				break;
 		}
@@ -8901,7 +8962,7 @@ static inline bool sema_expr_analyse_ct_arg(SemaContext *context, Type *infer_ty
 			return true;
 		case TOKEN_CT_VAARG:
 		{
-			unsigned index;
+			unsigned index = 0;
 			// A normal argument, this means we only evaluate it once.
 			ASSIGN_EXPR_OR_RET(Expr *arg_expr, sema_expr_analyse_ct_arg_index(context, exprptr(expr->ct_arg_expr.arg),
 			                                                                  &index, true), false);
@@ -8913,7 +8974,7 @@ static inline bool sema_expr_analyse_ct_arg(SemaContext *context, Type *infer_ty
 			FOREACH(Decl *, val, context->macro_params)
 			{
 				if (!val) continue;
-				if (val->va_index == index && val->var.kind == VARDECL_PARAM)
+				if (val->var.va_index == index && val->var.kind == VARDECL_PARAM)
 				{
 					decl = val;
 					break;
@@ -8929,7 +8990,7 @@ static inline bool sema_expr_analyse_ct_arg(SemaContext *context, Type *infer_ty
 				}
 				decl = decl_new_generated_var(arg_expr->type, VARDECL_PARAM, arg_expr->span);
 				decl->var.init_expr = arg_expr;
-				decl->va_index = (uint16_t)index;
+				decl->var.va_index = (uint16_t)index;
 				vec_add(context->macro_params, decl);
 			}
 			// Replace with the identifier.
@@ -8976,7 +9037,7 @@ static inline bool sema_expr_analyse_ct_arg(SemaContext *context, Type *infer_ty
 			FOREACH(Decl *, val, context->macro_params)
 			{
 				if (!val) continue;
-				if (val->var.kind == VARDECL_PARAM_REF && val->va_index == index)
+				if (val->var.kind == VARDECL_PARAM_REF && val->var.va_index == index)
 				{
 					decl = val;
 					break;
@@ -8990,7 +9051,7 @@ static inline bool sema_expr_analyse_ct_arg(SemaContext *context, Type *infer_ty
 				expr_insert_addr(arg_expr);
 				decl = decl_new_generated_var(arg_expr->type, VARDECL_PARAM_REF, arg_expr->span);
 				decl->var.init_expr = arg_expr;
-				decl->va_index = (uint16_t)index;
+				decl->var.va_index = (uint16_t)index;
 				vec_add(context->macro_params, decl);
 			}
 			// Replace with the identifier.
@@ -9493,6 +9554,7 @@ static inline bool sema_expr_analyse_builtin(SemaContext *context, Expr *expr, b
 	return true;
 }
 
+
 static inline bool sema_expr_analyse_compound_literal(SemaContext *context, Expr *expr)
 {
 	TypeInfo *type_info = expr->expr_compound_literal.type_info;
@@ -9532,6 +9594,8 @@ static inline bool sema_analyse_expr_dispatch(SemaContext *context, Expr *expr)
 		case EXPR_MACRO_BODY:
 		case EXPR_DEFAULT_ARG:
 			UNREACHABLE
+		case EXPR_TAGOF:
+			RETURN_SEMA_ERROR(expr, "Expected '()' after this.");
 		case EXPR_OTHER_CONTEXT:
 			context = expr->expr_other_context.context;
 			expr_replace(expr, expr->expr_other_context.inner);
@@ -9837,19 +9901,18 @@ static inline bool sema_cast_rvalue(SemaContext *context, Expr *expr)
 				return false;
 			}
 			break;
+		case EXPR_TAGOF:
+			RETURN_SEMA_ERROR(expr, "A tag name must be given.");
 		case EXPR_BUILTIN:
-			SEMA_ERROR(expr, "A builtin must be followed by ().");
-			return false;
+			RETURN_SEMA_ERROR(expr, "A builtin must be followed by ().");
 		case EXPR_ACCESS:
 			if (expr->access_expr.ref->decl_kind == DECL_FUNC)
 			{
-				SEMA_ERROR(expr, "A function name must be followed by '(' or preceded by '&'.");
-				return false;
+				RETURN_SEMA_ERROR(expr, "A function name must be followed by '(' or preceded by '&'.");
 			}
 			if (expr->access_expr.ref->decl_kind == DECL_MACRO)
 			{
-				SEMA_ERROR(expr, "A macro name must be followed by '('.");
-				return false;
+				RETURN_SEMA_ERROR(expr, "A macro name must be followed by '('.");
 			}
 			// We may have kept FOO.x.y as a reference, fold it now if y is not an aggregate.
 			sema_expr_flatten_const_ident(expr->access_expr.parent);

@@ -2,19 +2,14 @@
 // Use of this source code is governed by a LGPLv3.0
 // a copy of which can be found in the LICENSE file.
 
-#include <math.h>
 #include "build_internal.h"
 #include "utils/json.h"
-
-#define MAX_SYMTAB_SIZE (1024 * 1024)
-
-#define GET_SETTING(type__, key__, strings__, comment__) \
-  (type__)get_valid_string_setting(PROJECT_JSON, target_name, json, key__, strings__, 0, ELEMENTLEN(strings__), comment__)
 
 const char *project_default_keys[][2] = {
 		{"authors", "Authors, optionally with email."},
 		{"benchfn", "Override the benchmark function."},
 		{"c-sources", "Set the C sources to be compiled."},
+		{"c-include-dirs", "Set the include directories for C sources."},
 		{"cc", "Set C compiler (defaults to 'cc')."},
 		{"cflags", "C compiler flags."},
 		{"cpu", "CPU name, used for optimizations in the compiler backend."},
@@ -65,14 +60,16 @@ const char *project_default_keys[][2] = {
 
 const int project_default_keys_count = ELEMENTLEN(project_default_keys);
 
-const char *project_deprecated_target_keys[] = {
+const char* project_deprecated_target_keys[] = {
 		"c-source-add", "cflags-add", "dependencies-add", "dependency-search-paths-add", "exec-add",
 		"linked-libraries", "linker-search-paths", "link-args-add", "sources-add"
 };
-const char *project_target_keys[][2] = {
+const char* project_target_keys[][2] = {
 		{"benchfn", "Override the benchmark function."},
 		{"c-sources", "Additional C sources to be compiled for the target."},
 		{"c-sources-override", "C sources to be compiled, overriding global settings."},
+		{"c-include-dirs", "C sources include directories for the target."},
+		{"c-include-dirs-override", "Additional C sources include directories for the target, overriding global settings."},
 		{"cc", "Set C compiler (defaults to 'cc')."},
 		{"cflags", "Additional C compiler flags for the target."},
 		{"cflags-override", "C compiler flags for the target, overriding global settings."},
@@ -130,10 +127,13 @@ const char *project_target_keys[][2] = {
 };
 
 const int project_target_keys_count = ELEMENTLEN(project_target_keys);
-
 const int project_deprecated_target_keys_count = ELEMENTLEN(project_deprecated_target_keys);
 
+#define MAX_SYMTAB_SIZE (1024 * 1024)
+#define GET_SETTING(type__, key__, strings__, comment__) \
+  (type__)get_valid_string_setting(PROJECT_JSON, target_name, json, key__, strings__, 0, ELEMENTLEN(strings__), comment__)
 
+// Json -> target / default target
 static void load_into_build_target(JSONObject *json, const char *target_name, BuildTarget *target)
 {
 	if (target_name)
@@ -144,23 +144,33 @@ static void load_into_build_target(JSONObject *json, const char *target_name, Bu
 	{
 		check_json_keys(project_default_keys, project_default_keys_count, NULL, 0, json, "default target", "--list-project-properties");
 	}
+
+	// The default c compiler name
 	target->cc = get_string(PROJECT_JSON, target_name, json, "cc", target->cc);
 
+	// Where to find and execute the scripts
 	target->script_dir = get_string(PROJECT_JSON, target_name, json, "script-dir", target->script_dir);
 
-	// Exec
-	get_list_append_strings(PROJECT_JSON, target_name, json, &target->exec, "exec", "exec-override", "exec-add");
+	// The output directory
+	target->output_dir = get_string(PROJECT_JSON, target_name, json,"output", target->output_dir);
 
-	target->output_dir = get_string(PROJECT_JSON, target_name, json, "output", target->output_dir);
+	// "Before compilation" execution
+	get_list_append_strings(PROJECT_JSON, target_name, json, &target->exec, "exec", "exec-override", "exec-add");
 
 	// CFlags
 	target->cflags = get_cflags(PROJECT_JSON, target_name, json, target->cflags);
-
+	
 	// C source dirs.
 	get_list_append_strings(PROJECT_JSON, target_name, json, &target->csource_dirs, "c-sources", "c-sources-override", "c-sources-add");
 
+	// C include dirs.
+	get_list_append_strings(PROJECT_JSON, target_name, json, &target->cinclude_dirs, "c-include-dirs", "c-include-dirs-override", "c-include-dirs-add");
+
 	// Sources
 	get_list_append_strings(PROJECT_JSON, target_name, json, &target->source_dirs, "sources", "sources-override", "sources-add");
+
+	// Test sources
+	get_list_append_strings(PROJECT_JSON, target_name, json, &target->test_source_dirs, "test-sources", "test-sources-override", "test-sources-add");
 
 	// Linked-libraries - libraries to add at link time
 	get_list_append_strings(PROJECT_JSON, target_name, json, &target->linker_libs, "linked-libraries", "linked-libraries-override", "linked-libraries-add");
@@ -219,14 +229,14 @@ static void load_into_build_target(JSONObject *json, const char *target_name, Bu
 	target->feature.safe_mode = (SafetyLevel)get_valid_bool(PROJECT_JSON, target_name, json, "safe", target->feature.safe_mode);
 
 	// Backtrace
-	target->show_backtrace = (ShowBacktrace)get_valid_bool(PROJECT_JSON, target_name, json, "show-backtrace", target->show_backtrace);
+	target->show_backtrace = (ShowBacktrace) get_valid_bool(PROJECT_JSON, target_name, json, "show-backtrace", target->show_backtrace);
 
 	// Panic level
 	target->feature.panic_level = (PanicLevel)get_valid_bool(PROJECT_JSON, target_name, json, "panic-msg",
-		target->feature.panic_level);
+	                                                          target->feature.panic_level);
 
 	// Single module
-	target->single_module = (SingleModule)get_valid_bool(PROJECT_JSON, target_name, json, "single-module", target->single_module);
+	target->single_module = (SingleModule) get_valid_bool(PROJECT_JSON, target_name, json, "single-module", target->single_module);
 
 	// Memory environment for memory constrained environments.
 	MemoryEnvironment env = GET_SETTING(MemoryEnvironment, "memory-env", memory_environment, "one of 'normal', 'small', 'tiny' or 'none'.");
@@ -333,10 +343,10 @@ static void load_into_build_target(JSONObject *json, const char *target_name, Bu
 	target->benchfn = get_string(PROJECT_JSON, target_name, json, "benchfn", target->benchfn);
 
 	// link-libc
-	target->link_libc = (LinkLibc)get_valid_bool(PROJECT_JSON, target_name, json, "link-libc", target->link_libc);
+	target->link_libc = (LinkLibc) get_valid_bool(PROJECT_JSON, target_name, json, "link-libc", target->link_libc);
 
 	// strip-unused
-	target->strip_unused = (StripUnused)get_valid_bool(PROJECT_JSON, target_name, json, "strip-unused", target->strip_unused);
+	target->strip_unused = (StripUnused) get_valid_bool(PROJECT_JSON, target_name, json, "strip-unused", target->strip_unused);
 
 	// linker
 	const char *linker_selection = get_optional_string(PROJECT_JSON, target_name, json, "linker");
@@ -363,26 +373,30 @@ static void load_into_build_target(JSONObject *json, const char *target_name, Bu
 	target->no_entry = get_valid_bool(PROJECT_JSON, target_name, json, "no-entry", target->no_entry);
 
 	// use-stdlib
-	target->use_stdlib = (UseStdlib)get_valid_bool(PROJECT_JSON, target_name, json, "use-stdlib", target->use_stdlib);
+	target->use_stdlib = (UseStdlib) get_valid_bool(PROJECT_JSON, target_name, json, "use-stdlib", target->use_stdlib);
 
 	// emit-stdlib
-	target->emit_stdlib = (EmitStdlib)get_valid_bool(PROJECT_JSON, target_name, json, "emit-stdlib", target->emit_stdlib);
+	target->emit_stdlib = (EmitStdlib) get_valid_bool(PROJECT_JSON, target_name, json, "emit-stdlib", target->emit_stdlib);
 
 	// single-module
-	target->single_module = (SingleModule)get_valid_bool(PROJECT_JSON, target_name, json, "single-module", target->single_module);
+	target->single_module = (SingleModule) get_valid_bool(PROJECT_JSON, target_name, json, "single-module", target->single_module);
 
 	// Trap on wrap
 	target->feature.trap_on_wrap = get_valid_bool(PROJECT_JSON, target_name, json, "trap-on-wrap", target->feature.trap_on_wrap);
 
 	// Use the fact that they correspond to 0, 1, -1
 	target->feature.x86_struct_return = get_valid_bool(PROJECT_JSON, target_name, json, "x86-stack-struct-return",
-		target->feature.x86_struct_return);
-	target->feature.soft_float = get_valid_bool(PROJECT_JSON, target_name, json, "soft-float", target->feature.soft_float);
-	target->feature.pass_win64_simd_as_arrays = get_valid_bool(PROJECT_JSON, target_name, json, "win64-simd-array",
-		target->feature.pass_win64_simd_as_arrays);
+	                                                   target->feature.x86_struct_return);
 
+	// Soft float
+	target->feature.soft_float = get_valid_bool(PROJECT_JSON, target_name, json, "soft-float", target->feature.soft_float);
+
+	// Win64 simd feature switch
+	target->feature.pass_win64_simd_as_arrays = get_valid_bool(PROJECT_JSON, target_name, json, "win64-simd-array",
+	                                                           target->feature.pass_win64_simd_as_arrays);
 }
-static void project_add_target(Project *project, BuildTarget *default_target, JSONObject *json, const char *name, const char *type, TargetType target_type)
+
+static void project_add_target(Project *project, BuildTarget *default_target,  JSONObject *json, const char *name, const char *type, TargetType target_type)
 {
 	assert(json->type == J_OBJECT);
 	BuildTarget *target = CALLOCS(BuildTarget);

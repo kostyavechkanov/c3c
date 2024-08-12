@@ -544,7 +544,7 @@ void llvm_emit_dynamic_functions(GenContext *c, Decl **funcs)
 {
 	size_t len = vec_size(funcs);
 	if (!len) return;
-	if (platform_target.object_format == OBJ_FORMAT_MACHO)
+	if (compiler.platform.object_format == OBJ_FORMAT_MACHO)
 	{
 		LLVMTypeRef types[3] = { c->ptr_type, c->ptr_type, c->typeid_type };
 		LLVMTypeRef entry_type = LLVMStructType(types, 3, false);
@@ -620,9 +620,9 @@ void llvm_emit_function_decl(GenContext *c, Decl *decl)
 	decl_append_links_to_global(decl);
 	LLVMValueRef function = llvm_get_ref(c, decl);
 	decl->backend_ref = function;
-	if (decl->section_id)
+	if (decl->attrs_resolved && decl->attrs_resolved->section)
 	{
-		LLVMSetSection(function, section_from_id(decl->section_id));
+		LLVMSetSection(function, decl->attrs_resolved->section);
 	}
 	if (llvm_use_debug(c))
 	{

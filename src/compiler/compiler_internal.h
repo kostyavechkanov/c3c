@@ -13,8 +13,6 @@
 #include <float.h>
 
 typedef double Real;
-
-#define MAX_ARRAYINDEX INT32_MAX
 typedef uint64_t ByteSize;
 typedef uint32_t TypeSize;
 typedef int32_t IndexDiff;
@@ -24,10 +22,9 @@ typedef uint32_t AlignSize;
 typedef int32_t ScopeId;
 typedef uint32_t ArraySize;
 typedef uint64_t BitSize;
-typedef uint16_t SectionId;
+typedef uint16_t FileId;
 
-#define MAX_SECTIONS 0xFFFE
-#define SECTION_PREFIX_LEN 8
+#define MAX_ARRAYINDEX INT32_MAX
 #define MAX_FIXUPS 0xFFFFF
 #define MAX_HASH_SIZE (512 * 1024 * 1024)
 #define INVALID_SPAN ((SourceSpan){ .row = 0 })
@@ -35,6 +32,7 @@ typedef uint16_t SectionId;
 #define MAX_STRING_BUFFER 0x10000
 #define INITIAL_SYMBOL_MAP 0x10000
 #define INITIAL_GENERIC_SYMBOL_MAP 0x1000
+#define MAX_INCLUDE_DIRECTIVES 2048
 #define MAX_MACRO_ITERATIONS 0xFFFFFF
 #define MAX_PARAMS 255
 #define MAX_BITSTRUCT 0x1000
@@ -43,26 +41,22 @@ typedef uint16_t SectionId;
 #define MAX_PRIORITY 0xFFFF
 #define MAX_TYPE_SIZE UINT32_MAX
 #define MAX_GLOBAL_DECL_STACK (65536)
-#define MAX_ASM_INSTRUCTION_PARAMS 6
-#define CLOBBER_FLAG_ELEMENTS 4
-#define MAX_CLOBBER_FLAGS (64 * CLOBBER_FLAG_ELEMENTS)
 #define MEMCMP_INLINE_REGS 8
-
-extern const char *project_default_keys[][2];
-extern const int project_default_keys_count;
-extern const char *project_target_keys[][2];
-extern const int project_target_keys_count;
-extern const char *manifest_default_keys[][2];
-extern const int manifest_default_keys_count;
-extern const char *manifest_target_keys[][2];
-extern const int manifest_target_keys_count;
-
-typedef enum BoolErr__
-{
-	BOOL_ERR = -1,
-	BOOL_FALSE = 0,
-	BOOL_TRUE = 1,
-} BoolErr;
+#define UINT128_MAX ((Int128) { UINT64_MAX, UINT64_MAX })
+#define INT128_MAX ((Int128) { INT64_MAX, UINT64_MAX })
+#define INT128_MIN ((Int128) { (uint64_t)INT64_MIN, 0 })
+#define STDIN_FILE_ID 0xFFFF
+#define ABI_TYPE_EMPTY ((AbiType) { .type = NULL })
+#define RANGE_EXTEND_PREV(x)  do { (x)->span = extend_span_with_token((x)->span, c->prev_span); } while (0)
+#define PRINT_ERROR_AT(_node, ...) print_error_at((_node)->span, __VA_ARGS__)
+#define RETURN_PRINT_ERROR_AT(_val, _node, ...) do { print_error_at((_node)->span, __VA_ARGS__); return _val; } while (0)
+#define PRINT_ERROR_HERE(...) print_error_at(c->span, __VA_ARGS__)
+#define RETURN_PRINT_ERROR_HERE(...) do { print_error_at(c->span, __VA_ARGS__); return false; } while (0)
+#define PRINT_ERROR_LAST(...) print_error_at(c->prev_span, __VA_ARGS__)
+#define RETURN_PRINT_ERROR_LAST(...) do { print_error_at(c->prev_span, __VA_ARGS__); return false; } while (0)
+#define SEMA_NOTE(_node, ...) sema_error_prev_at((_node)->span, __VA_ARGS__)
+#define EXPAND_EXPR_STRING(str_) (str_)->const_expr.bytes.len, (str_)->const_expr.bytes.ptr
+#define TABLE_MAX_LOAD 0.5
 
 typedef struct Ast_ Ast;
 typedef struct Decl_ Decl;
@@ -79,7 +73,6 @@ typedef unsigned ExprId;
 typedef unsigned DeclId;
 typedef unsigned TypeInfoId;
 typedef struct SemaContext_ SemaContext;
-
 
 typedef struct Int128_
 {
@@ -98,30 +91,6 @@ typedef struct
 	Real f;
 	TypeKind type;
 } Float;
-
-#define UINT128_MAX ((Int128) { UINT64_MAX, UINT64_MAX })
-#define INT128_MAX ((Int128) { INT64_MAX, UINT64_MAX })
-#define INT128_MIN ((Int128) { (uint64_t)INT64_MIN, 0 })
-
-typedef enum
-{
-	CONST_INIT_ZERO,
-	CONST_INIT_STRUCT,
-	CONST_INIT_UNION,
-	CONST_INIT_VALUE,
-	CONST_INIT_ARRAY,
-	CONST_INIT_ARRAY_FULL,
-	CONST_INIT_ARRAY_VALUE,
-} ConstInitType;
-
-typedef enum
-{
-	RESOLVE_TYPE_DEFAULT,
-	RESOLVE_TYPE_ALLOW_INFER    = 0x01,
-	RESOLVE_TYPE_ALLOW_FLEXIBLE = 0x02,
-	RESOLVE_TYPE_MACRO_METHOD   = RESOLVE_TYPE_ALLOW_INFER,
-	RESOLVE_TYPE_FUNC_METHOD    = RESOLVE_TYPE_DEFAULT
-} ResolveTypeKind;
 
 struct ConstInitializer_
 {
@@ -150,60 +119,6 @@ struct ConstInitializer_
 	};
 };
 
-typedef struct
-{
-	char string[1024];
-	unsigned constraint_len;
-} ClobberList;
-
-
-typedef struct
-{
-	bool is_write : 1;
-	bool is_readwrite : 1;
-	bool is_address : 1;
-	AsmArgBits imm_arg_ubits : 16;
-	AsmArgBits imm_arg_ibits : 16;
-	AsmArgBits ireg_bits : 16;
-	AsmArgBits float_bits : 16;
-	AsmArgBits vec_bits : 16;
-} AsmArgType;
-
-typedef struct
-{
-	const char *name;
-	AsmRegisterType type;
-	AsmArgBits bits;
-	int clobber_index;
-} AsmRegister;
-
-typedef struct
-{
-	uint64_t mask[CLOBBER_FLAG_ELEMENTS];
-} Clobbers;
-
-typedef struct
-{
-	const char *name;
-	AsmArgType param[MAX_ASM_INSTRUCTION_PARAMS];
-	unsigned param_count;
-	Clobbers mask;
-} AsmInstruction;
-
-#define ASM_INSTRUCTION_MAX 0x1000
-#define ASM_INSTRUCTION_MASK (ASM_INSTRUCTION_MAX - 1)
-#define ASM_REGISTER_MAX 4096
-#define ASM_REGISTER_MASK (ASM_REGISTER_MAX - 1)
-
-typedef struct
-{
-	bool initialized;
-	const char **clobber_name_list;
-	const char *extra_clobbers;
-	AsmRegister registers[ASM_REGISTER_MAX];
-	AsmInstruction instructions[ASM_INSTRUCTION_MAX];
-	unsigned register_count;
-} AsmTarget;
 
 typedef struct
 {
@@ -235,8 +150,6 @@ typedef struct
 } ExprConst;
 
 
-typedef uint16_t FileId;
-
 typedef struct
 {
 	FileId file_id;
@@ -259,8 +172,6 @@ typedef union
 	uint64_t a;
 } SourceSpan;
 
-extern File stdin_file;
-#define stdin_file_id 0xFFFF
 
 static_assert(sizeof(SourceSpan) == 8, "Expected 8 bytes");
 
@@ -369,16 +280,6 @@ struct Type_
 	};
 };
 
-typedef enum
-{
-	TYPE_COMPRESSED_NONE = 0,
-	TYPE_COMPRESSED_PTR = 1,
-	TYPE_COMPRESSED_SUB = 2,
-	TYPE_COMPRESSED_SUBPTR = 3,
-	TYPE_COMPRESSED_PTRPTR = 4,
-	TYPE_COMPRESSED_PTRSUB = 5,
-	TYPE_COMPRESSED_SUBSUB = 6,
-} TypeInfoCompressedKind;
 
 struct TypeInfo_
 {
@@ -411,6 +312,7 @@ struct TypeInfo_
 };
 
 
+
 typedef struct
 {
 	Path *path;
@@ -420,6 +322,15 @@ typedef struct
 	bool is_custom : 1;
 	Expr **exprs;
 } Attr;
+
+typedef struct
+{
+	Attr **tags;
+	const char *deprecated;
+	const char **links;
+	const char *section;
+	SourceSpan overload;
+} ResolvedAttrData;
 
 typedef struct
 {
@@ -462,6 +373,8 @@ typedef struct
 
 typedef struct VarDecl_
 {
+	TypeInfoId type_info;
+	uint16_t va_index;
 	VarDeclKind kind : 8;
 	bool shadow : 1;
 	bool vararg : 1;
@@ -476,7 +389,6 @@ typedef struct VarDecl_
 	bool no_init : 1;
 	bool no_alias : 1;
 	bool bit_is_expr : 1;
-	TypeInfoId type_info;
 	union
 	{
 		Expr *init_expr;
@@ -536,16 +448,6 @@ typedef struct
 	TypeInfo *type_info;
 } EnumDecl;
 
-typedef enum
-{
-	VARIADIC_NONE,
-	VARIADIC_TYPED,
-	VARIADIC_ANY,
-	VARIADIC_RAW,
-} Variadic;
-
-
-
 struct Signature_
 {
 	CalleeAttributes attrs;
@@ -558,8 +460,6 @@ struct Signature_
 	TypeInfoId rtype;
 	Decl** params;
 };
-
-
 
 typedef struct
 {
@@ -619,13 +519,6 @@ typedef struct
 	};
 } TypedefDecl;
 
-
-typedef enum
-{
-	DEFINE_IDENT_ALIAS,
-	DEFINE_IDENT_GENERIC,
-} DefineType;
-
 typedef struct
 {
 	DefineType define_kind: 5;
@@ -672,6 +565,7 @@ typedef struct Decl_
 	DeclKind decl_kind : 7;
 	ResolveStatus resolve_status : 3;
 	Visibility visibility : 3;
+	bool has_tag : 1;
 	bool is_packed : 1;
 	bool is_extern : 1;
 	bool is_substruct : 1;
@@ -690,12 +584,11 @@ typedef struct Decl_
 	bool is_export : 1;
 	bool is_live : 1;
 	bool no_strip : 1;
-	bool is_deprecated : 1;
 	bool is_cond : 1;
-	bool has_link : 1;
 	bool is_if : 1;
 	bool attr_nopadding : 1;
 	bool attr_compact : 1;
+	bool resolved_attributes : 1;
 	OperatorOverload operator : 4;
 	union
 	{
@@ -705,15 +598,14 @@ typedef struct Decl_
 		void *tb_symbol;
 	};
 	AlignSize alignment;
-	union
-	{
-		SectionId section_id;
-		uint16_t va_index;
-	};
 	AlignSize offset;
 	AlignSize padding;
 	struct CompilationUnit_ *unit;
-	Attr **attributes;
+	union
+	{
+		Attr **attributes;
+		ResolvedAttrData *attrs_resolved;
+	};
 	Type *type;
 	union
 	{
@@ -753,7 +645,7 @@ typedef struct Decl_
 	};
 } Decl;
 
-
+// static_assert(sizeof(void*) != 8 || sizeof(Decl) == 136, "Decl has unexpected size.");
 
 typedef struct
 {
@@ -851,17 +743,6 @@ typedef struct
 	ExprId offset;
 } ExprPointerOffset;
 
-typedef enum
-{
-	ACCESS_LEN,
-	ACCESS_PTR,
-	ACCESS_TYPEOFANY,
-	ACCESS_TYPEOFANYFAULT,
-	ACCESS_ENUMNAME,
-	ACCESS_FAULTNAME,
-	ACCESS_FAULTORDINAL,
-} BuiltinAccessKind;
-
 typedef struct
 {
 	BuiltinAccessKind kind : 8;
@@ -873,6 +754,7 @@ typedef struct
 	Expr *filename;
 	Expr *len;
 } ExprEmbedExpr;
+
 typedef struct
 {
 	ExprId parent;
@@ -913,6 +795,12 @@ typedef struct
 
 typedef struct
 {
+	Decl *type;
+	TypeProperty property;
+} ExprTagOf;
+
+typedef struct
+{
 	union
 	{
 		struct
@@ -943,8 +831,6 @@ typedef struct
 	Decl *decl;
 } ExprIdentifierRaw;
 
-
-
 typedef struct
 {
 	TokenType token_type;
@@ -963,19 +849,6 @@ typedef struct
 	};
 } ExprCtCall;
 
-
-typedef enum
-{
-	ASM_SCALE_1,
-	ASM_SCALE_2,
-	ASM_SCALE_4,
-	ASM_SCALE_8,
-	ASM_SCALE_SHR,
-	ASM_SCALE_SHL,
-	ASM_SCALE_ASHL,
-	ASM_SCALE_ROR,
-	ASM_SCALE_RRX,
-} AsmOffsetType;
 typedef struct
 {
 	AsmArgKind kind : 8;
@@ -1064,8 +937,6 @@ typedef struct
 	Decl *macro;
 	BlockExit **block_exit;
 } ExprMacroBlock;
-
-
 
 typedef struct
 {
@@ -1228,6 +1099,7 @@ struct Expr_
 		ExprSwizzle swizzle_expr;
 		ExprTernary ternary_expr;                   // 16
 		BuiltinDefine benchmark_hook_expr;
+		ExprTagOf tag_of_expr;
 		BuiltinDefine test_hook_expr;
 		Expr** try_unwrap_chain_expr;               // 8
 		ExprTryUnwrap try_unwrap_expr;              // 24
@@ -1238,16 +1110,14 @@ struct Expr_
 		Range vasplat_expr;
 	};
 };
-//static_assert(sizeof(ExprConst) == 32, "Not expected size");
 
-static_assert(sizeof(Expr) == 56, "Expr not expected size");
+static_assert(sizeof(void*) != 8 || sizeof(Expr) == 56, "Expr not expected size");
 
 typedef struct
 {
 	AstId first_stmt;
 	AstId parent_defer;
 } AstCompoundStmt;
-
 
 typedef struct
 {
@@ -1266,8 +1136,6 @@ typedef struct
 	bool if_chain : 1;
 	bool jump : 1;
 } FlowCommon;
-
-
 
 typedef struct
 {
@@ -1375,8 +1243,6 @@ typedef struct
 	bool is_try : 1;
 	bool is_catch : 1;
 } AstDeferStmt;
-
-
 
 typedef struct AstCtIfStmt_
 {
@@ -1549,8 +1415,7 @@ typedef struct Ast_
 } Ast;
 
 
-//static_assert(sizeof(AstContinueBreakStmt) == 24, "Ooops");
-static_assert(sizeof(Ast) == 56, "Not expected size on 64 bit");
+static_assert(sizeof(void*) != 8 || sizeof(Ast) == 56, "Not expected Ast size");
 
 typedef struct Module_
 {
@@ -1702,14 +1567,6 @@ typedef struct ParseContext_
 	Lexer lexer;
 } ParseContext;
 
-typedef enum
-{
-	CALL_ENV_GLOBAL_INIT,
-	CALL_ENV_FUNCTION,
-	CALL_ENV_FUNCTION_STATIC,
-	CALL_ENV_ATTR,
-} CallEnvKind;
-
 typedef struct
 {
 	CallEnvKind kind : 8;
@@ -1772,58 +1629,6 @@ struct SemaContext_
 	Expr *return_expr;
 };
 
-
-typedef struct
-{
-	HTable modules;
-	Module *core_module;
-	CompilationUnit *core_unit;
-	Module **module_list;
-	Module **generic_module_list;
-	Type **type;
-	Decl** method_extensions;
-	const char *lib_dir;
-	const char **sources;
-	File **loaded_sources;
-	bool in_panic_mode : 1;
-	unsigned errors_found;
-	unsigned warnings_found;
-	unsigned includes_used;
-	Decl ***locals_list;
-	const char **links;
-	HTable compiler_defines;
-	HTable features;
-	Module std_module;
-	DeclTable symbols;
-	DeclTable generic_symbols;
-	Path std_module_path;
-	Type *string_type;
-	Decl *panic_var;
-	Decl *panicf;
-	Decl *io_error_file_not_found;
-	Decl *main;
-	Decl *test_func;
-	Decl *benchmark_func;
-	Decl *decl_stack[MAX_GLOBAL_DECL_STACK];
-	Decl **decl_stack_bottom;
-	Decl **decl_stack_top;
-	const char **section_list;
-} GlobalContext;
-
-
-typedef enum
-{
-	ABI_ARG_IGNORE,
-	ABI_ARG_DIRECT,
-	ABI_ARG_DIRECT_PAIR,
-	ABI_ARG_DIRECT_COERCE,
-	ABI_ARG_DIRECT_COERCE_INT,
-	ABI_ARG_DIRECT_SPLIT_STRUCT_I32,
-	ABI_ARG_EXPAND_COERCE,
-	ABI_ARG_INDIRECT,
-	ABI_ARG_EXPAND,
-}  ABIKind;
-
 typedef struct
 {
 	union
@@ -1832,8 +1637,6 @@ typedef struct
 		uintptr_t int_bits_plus_1;
 	};
 } AbiType;
-
-#define ABI_TYPE_EMPTY ((AbiType) { .type = NULL })
 
 typedef struct ABIArgInfo_
 {
@@ -1924,16 +1727,61 @@ typedef struct CopyStruct_
 	bool is_template;
 } CopyStruct;
 
+typedef struct
+{
+	const char **links;
+} Linking;
 
-extern GlobalContext global_context;
-extern AsmTarget asm_target;
-extern BuildTarget active_target;
+typedef struct
+{
+	HTable modules;
+	Module *core_module;
+	CompilationUnit *core_unit;
+	Module **module_list;
+	Module **generic_module_list;
+	Type **type;
+	Decl** method_extensions;
+	const char *lib_dir;
+	const char **sources;
+	File **loaded_sources;
+	bool in_panic_mode : 1;
+	unsigned errors_found;
+	unsigned warnings_found;
+	unsigned includes_used;
+	Decl ***locals_list;
+	bool silence_deprecation;
+	HTable compiler_defines;
+	HTable features;
+	Module std_module;
+	DeclTable symbols;
+	DeclTable generic_symbols;
+	Path std_module_path;
+	Type *string_type;
+	Decl *panic_var;
+	Decl *panicf;
+	Decl *io_error_file_not_found;
+	Decl *main;
+	Decl *test_func;
+	Decl *benchmark_func;
+	Decl *decl_stack[MAX_GLOBAL_DECL_STACK];
+	Decl **decl_stack_bottom;
+	Decl **decl_stack_top;
+} GlobalContext;
+
+typedef struct
+{
+	BuildTarget build;
+	PlatformTarget platform;
+	Linking linking;
+	GlobalContext context;
+} CompilerState;
+
+extern CompilerState compiler;
 extern Ast *poisoned_ast;
 extern Decl *poisoned_decl;
 extern Expr *poisoned_expr;
 extern Type *poisoned_type;
 extern TypeInfo *poisoned_type_info;
-
 
 extern Type *type_bool, *type_void, *type_voidptr;
 extern Type *type_float16, *type_bfloat, *type_float, *type_double, *type_f128;
@@ -1949,7 +1797,7 @@ extern Type *type_cuint;
 extern Type *type_chars;
 extern Type *type_wildcard_optional;
 extern Type *type_string;
-
+extern File stdin_file;
 
 extern const char *attribute_list[NUMBER_OF_ATTRIBUTES];
 extern const char *builtin_list[NUMBER_OF_BUILTINS];
@@ -2007,27 +1855,27 @@ INLINE Type *typeget(TypeInfoId id_)
 
 INLINE bool no_panic(void)
 {
-	return active_target.feature.panic_level == PANIC_OFF;
+	return compiler.build.feature.panic_level == PANIC_OFF;
 }
 
 INLINE bool safe_mode_enabled(void)
 {
-	return active_target.feature.safe_mode != SAFETY_OFF;
+	return compiler.build.feature.safe_mode != SAFETY_OFF;
 }
 
 INLINE bool link_libc(void)
 {
-	return active_target.link_libc != LINK_LIBC_OFF;
+	return compiler.build.link_libc != LINK_LIBC_OFF;
 }
 
 INLINE bool strip_unused(void)
 {
-	return active_target.strip_unused != STRIP_UNUSED_OFF;
+	return compiler.build.strip_unused != STRIP_UNUSED_OFF;
 }
 
 INLINE bool no_stdlib(void)
 {
-	return active_target.use_stdlib == USE_STDLIB_OFF;
+	return compiler.build.use_stdlib == USE_STDLIB_OFF;
 }
 
 bool ast_is_not_empty(Ast *ast);
@@ -2050,14 +1898,6 @@ static inline SourceSpan extend_span_with_token(SourceSpan loc, SourceSpan after
 	loc.length = after.col + after.length - loc.col;
 	return loc;
 }
-
-
-typedef enum CmpRes_
-{
-	CMP_LT = -1,
-	CMP_EQ = 0,
-	CMP_GT = 1,
-} CmpRes;
 
 AttributeType attribute_by_name(const char *name);
 
@@ -2097,7 +1937,7 @@ Int int_shr64(Int op, uint64_t);
 Int int_shl64(Int op, uint64_t);
 Real int_to_real(Int op);
 Int int_from_real(Real d, TypeKind type);
-char *int_to_str(Int i, int radix);
+char *int_to_str(Int i, int radix, bool use_prefix);
 bool i128_can_convert_from_double(double x);
 bool i128_can_convert_from_double_signed(double x);
 Int128 i128_from_double(double x);
@@ -2117,7 +1957,7 @@ Int128 i128_not(Int128 op1);
 Int128 i128_mult(Int128 op1, Int128 op2);
 Int128 i128_mult64(Int128 op1, uint64_t op2);
 Int128 i128_from_str(const char *str);
-char *i128_to_string(Int128 op, uint64_t base, bool is_signed);
+char *i128_to_string(Int128 op, uint64_t base, bool is_signed, bool use_prefix);
 bool i128_is_neg(Int128 op);
 CmpRes i128_ucomp(Int128 op1, Int128 op2);
 CmpRes i128_scomp(Int128 op1, Int128 op2);
@@ -2175,9 +2015,9 @@ Ast *copy_ast_macro(Ast *source_ast);
 Ast *copy_ast_defer(Ast *source_ast);
 TypeInfo *copy_type_info_single(TypeInfo *type_info);
 
-void init_asm(void);
-AsmRegister *asm_reg_by_name(const char *name);
-AsmInstruction *asm_instr_by_name(const char *name);
+void init_asm(PlatformTarget *target);
+AsmRegister *asm_reg_by_name(PlatformTarget *target, const char *name);
+AsmInstruction *asm_instr_by_name(PlatformTarget *target, const char *name);
 INLINE const char *asm_clobber_by_index(unsigned index);
 INLINE AsmRegister *asm_reg_by_index(unsigned index);
 
@@ -2209,10 +2049,8 @@ void global_context_clear_errors(void);
 void global_context_add_type(Type *type);
 void global_context_add_decl(Decl *type_decl);
 void global_context_add_generic_decl(Decl *decl);
-SectionId global_context_register_section(const char *section);
-void global_context_add_link(const char *link);
 
-INLINE const char *section_from_id(SectionId id);
+void linking_add_link(Linking *linker, const char *link);
 
 Module *compiler_find_or_create_module(Path *module_name, const char **parameters);
 Module *global_context_find_module(const char *name);
@@ -2338,19 +2176,10 @@ Ast *parse_include_file_stmts(File *file, CompilationUnit *unit);
 bool parse_stdin(void);
 Path *path_create_from_string(const char *string, uint32_t len, SourceSpan span);
 
-#define PRINT_ERROR_AT(_node, ...) print_error_at((_node)->span, __VA_ARGS__)
-#define RETURN_PRINT_ERROR_AT(_val, _node, ...) do { print_error_at((_node)->span, __VA_ARGS__); return _val; } while (0)
-#define PRINT_ERROR_HERE(...) print_error_at(c->span, __VA_ARGS__)
-#define RETURN_PRINT_ERROR_HERE(...) do { print_error_at(c->span, __VA_ARGS__); return false; } while (0)
-#define PRINT_ERROR_LAST(...) print_error_at(c->prev_span, __VA_ARGS__)
-#define RETURN_PRINT_ERROR_LAST(...) do { print_error_at(c->prev_span, __VA_ARGS__); return false; } while (0)
-#define SEMA_NOTE(_node, ...) sema_error_prev_at((_node)->span, __VA_ARGS__)
-#define EXPAND_EXPR_STRING(str_) (str_)->const_expr.bytes.len, (str_)->const_expr.bytes.ptr
-#define TABLE_MAX_LOAD 0.5
 
 void sema_analysis_run(void);
 Decl **sema_decl_stack_store(void);
-Decl *sema_decl_stack_find_decl_member(Decl *decl_owner, const char *symbol);
+Decl *sema_decl_stack_find_decl_member(SemaContext *context, Decl *decl_owner, const char *symbol);
 Decl *sema_decl_stack_resolve_symbol(const char *symbol);
 void sema_decl_stack_restore(Decl **state);
 void sema_decl_stack_push(Decl *decl);
@@ -2425,8 +2254,6 @@ File *source_file_text_load(const char *filename, const char *content);
 File *compile_and_invoke(const char *file, const char *args);
 void compiler_parse(void);
 void emit_json(void);
-
-#define RANGE_EXTEND_PREV(x)  do { (x)->span = extend_span_with_token((x)->span, c->prev_span); } while (0)
 
 void stable_init(STable *table, uint32_t initial_size);
 void *stable_set(STable *table, const char *key, void *value);
@@ -2517,15 +2344,6 @@ bool type_flat_is_numlike(Type *type);
 bool type_may_have_sub_elements(Type *type);
 bool type_may_have_method(Type *type);
 void type_append_name_to_scratch(Type *type);
-
-typedef enum
-{
-	TYPE_MISMATCH = 0,
-	TYPE_SAME = 1,
-	TYPE_SAME_INT_SIZE = 2,
-	TYPE_ALIGNMENT_INCREASE = 3,
-	TYPE_ERROR = -1,
-} TypeCmpResult;
 
 TypeCmpResult type_is_pointer_equivalent(SemaContext *context, Type *to_pointer, Type *from_pointer, bool flatten_distinct);
 TypeCmpResult type_array_element_is_equivalent(SemaContext *context, Type *element1, Type *element2, bool is_explicit);
@@ -2904,15 +2722,6 @@ INLINE const char *type_invalid_storage_type_name(Type *type)
 	}
 }
 
-typedef enum
-{
-	STORAGE_NORMAL,
-	STORAGE_VOID,
-	STORAGE_COMPILE_TIME,
-	STORAGE_WILDCARD,
-	STORAGE_UNKNOWN
-} StorageType;
-
 static inline StorageType type_storage_type(Type *type)
 {
 	if (!type) return STORAGE_NORMAL;
@@ -2928,6 +2737,7 @@ static inline StorageType type_storage_type(Type *type)
 		case TYPE_MEMBER:
 		case TYPE_UNTYPED_LIST:
 		case TYPE_TYPEINFO:
+		case TYPE_FUNC_RAW:
 			return STORAGE_COMPILE_TIME;
 		case TYPE_OPTIONAL:
 			type = type->optional;
@@ -3453,6 +3263,7 @@ INLINE void expr_set_span(Expr *expr, SourceSpan loc)
 		case EXPR_VASPLAT:
 		case EXPR_MACRO_BODY:
 		case EXPR_DEFAULT_ARG:
+		case EXPR_TAGOF:
 			break;
 	}
 }
@@ -3501,7 +3312,7 @@ INLINE Expr *expr_new_expr(ExprKind kind, Expr *expr)
 INLINE bool type_is_promotable_int_bool(Type *type)
 {
 	// If we support other architectures, update this.
-	return type_is_integer_or_bool_kind(type) && type->builtin.bitsize < platform_target.width_c_int;
+	return type_is_integer_or_bool_kind(type) && type->builtin.bitsize < compiler.platform.width_c_int;
 }
 
 INLINE bool type_is_promotable_float(Type *type)
@@ -3538,8 +3349,9 @@ bool static_lib_linker(const char *output_file, const char **files, unsigned fil
 bool dynamic_lib_linker(const char *output_file, const char **files, unsigned file_count);
 bool linker(const char *output_file, const char **files, unsigned file_count);
 void platform_linker(const char *output_file, const char **files, unsigned file_count);
-const char *cc_compiler(const char *cc, const char *file, const char *flags, const char *output_subdir);
+const char *cc_compiler(const char *cc, const char *file, const char *flags, const char **include_dirs, const char *output_subdir);
 const char *arch_to_linker_arch(ArchType arch);
+extern char swizzle[256];
 
 #define CAT(a,b) CAT2(a,b) // force expand
 #define CAT2(a,b) a##b // actually concatenate
@@ -3706,12 +3518,12 @@ INLINE void expr_rewrite_const_float(Expr *expr, Type *type, Real d)
 
 INLINE const char *asm_clobber_by_index(unsigned index)
 {
-	return asm_target.clobber_name_list[index];
+	return compiler.platform.clobber_name_list[index];
 }
 
 INLINE AsmRegister *asm_reg_by_index(unsigned index)
 {
-	return &asm_target.registers[index];
+	return &compiler.platform.registers[index];
 }
 
 INLINE void clobbers_add(Clobbers *clobbers, unsigned index)
@@ -3849,11 +3661,6 @@ INLINE bool expr_is_const_member(Expr *expr)
 	return expr->expr_kind == EXPR_CONST && expr->const_expr.const_kind == CONST_MEMBER;
 }
 
-INLINE const char *section_from_id(SectionId id)
-{
-	return id ? global_context.section_list[id - 1] + SECTION_PREFIX_LEN : NULL;
-}
-
 INLINE bool check_module_name(Path *path)
 {
 	if (!str_is_valid_module_name(path->module))
@@ -3863,4 +3670,3 @@ INLINE bool check_module_name(Path *path)
 	return true;
 }
 
-extern char swizzle[256];

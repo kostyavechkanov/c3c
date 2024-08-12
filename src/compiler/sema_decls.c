@@ -42,8 +42,8 @@ static inline bool sema_analyse_bitstruct_member(SemaContext *context, Decl *par
 static inline bool sema_analyse_doc_header(SemaContext *context, AstId doc, Decl **params, Decl **extra_params, bool *pure_ref);
 
 static const char *attribute_domain_to_string(AttributeDomain domain);
-static bool sema_analyse_attribute(SemaContext *context, Decl *decl, Attr *attr, AttributeDomain domain, bool *erase_decl);
-static bool sema_analyse_attributes_inner(SemaContext *context, Decl *decl, Attr **attrs, AttributeDomain domain,
+static bool sema_analyse_attribute(SemaContext *context, ResolvedAttrData *attr_data, Decl *decl, Attr *attr, AttributeDomain domain, bool *erase_decl);
+static bool sema_analyse_attributes_inner(SemaContext *context, ResolvedAttrData *attr_data, Decl *decl, Attr **attrs, AttributeDomain domain,
 										  Decl *top, bool *erase_decl);
 static bool sema_analyse_attributes(SemaContext *context, Decl *decl, Attr **attrs, AttributeDomain domain,
 									bool *erase_decl);
@@ -70,7 +70,7 @@ static bool sema_check_section(SemaContext *context, Attr *attr)
 	Expr *expr = attr->exprs[0];
 	const char *section_string = expr->const_expr.bytes.ptr;
 	// No restrictions except for MACH-O
-	if (platform_target.object_format != OBJ_FORMAT_MACHO)
+	if (compiler.platform.object_format != OBJ_FORMAT_MACHO)
 	{
 		return true;
 	}
@@ -443,7 +443,7 @@ RETRY:;
 		case TYPE_FUNC_RAW:
 		case TYPE_FAULTTYPE:
 		case TYPE_SLICE:
-			return platform_target.align_pointer.align / 8;
+			return compiler.platform.align_pointer.align / 8;
 		case TYPE_ENUM:
 			type = type->decl->enums.type_info->type;
 			goto RETRY;
@@ -927,11 +927,22 @@ static bool sema_analyse_interface(SemaContext *context, Decl *decl, bool *erase
 			if (!decl_ok(method)) return false;
 			continue;
 		}
-
-		if (method->decl_kind != DECL_FUNC) RETURN_SEMA_ERROR(method, "Only functions are allowed here.");
+		if (method->resolve_status == RESOLVE_RUNNING)
+		{
+			SEMA_ERROR(method, "Recursive definition of method, this is not allowed.");
+			return decl_poison(method);
+		}
+		method->unit = decl->unit;
+		method->resolve_status = RESOLVE_RUNNING;
+		if (method->decl_kind != DECL_FUNC)
+		{
+			SEMA_ERROR(method, "Only functions are allowed here.");
+			return decl_poison(method);
+		}
 		if (method->func_decl.type_parent)
 		{
-			RETURN_SEMA_ERROR(type_infoptr(method->func_decl.type_parent), "Interfaces should not be declared as methods.");
+			SEMA_ERROR(type_infoptr(method->func_decl.type_parent), "Interfaces should not be declared as methods.");
+			return decl_poison(method);
 		}
 		method->func_decl.attr_interface_method = true;
 		bool erase = false;
@@ -974,10 +985,10 @@ static bool sema_analyse_interface(SemaContext *context, Decl *decl, bool *erase
 			{
 				SEMA_ERROR(method, "Duplicate definition of method '%s'.", name);
 				SEMA_NOTE(functions[j], "The previous definition was here.");
-				decl_poison(method);
-				return false;
+				return decl_poison(method);
 			}
 		}
+		method->resolve_status = RESOLVE_DONE;
 	}
 	return true;
 }
@@ -1518,7 +1529,7 @@ static inline bool sema_analyse_enum(SemaContext *context, Decl *decl, bool *era
 		{
 			SEMA_ERROR(enum_value,
 					   "The enum value would implicitly be %s which does not fit in %s.",
-					   i128_to_string(value, 10, type_is_signed(flat_underlying_type)),
+					   i128_to_string(value, 10, type_is_signed(flat_underlying_type), false),
 					   type_quoted_error_string(type));
 			return false;
 		}
@@ -1758,31 +1769,28 @@ bool sema_decl_if_cond(SemaContext *context, Decl *decl)
 	return false;
 }
 
-INLINE Attr* method_find_overload_attribute(Decl *method)
+INLINE SourceSpan method_find_overload_span(Decl *method)
 {
-	FOREACH(Attr *, attr, method->attributes)
-	{
-		if (attr->attr_kind == ATTRIBUTE_OPERATOR) return attr;
-	}
-	UNREACHABLE
+	assert(method->resolved_attributes && method->attrs_resolved);
+	return method->attrs_resolved->overload;
 }
 
-static inline bool
-unit_add_base_extension_method(SemaContext *context, CompilationUnit *unit, Type *parent_type, Decl *method)
+static inline bool unit_add_base_extension_method(SemaContext *context, CompilationUnit *unit, Type *parent_type, Decl *method)
 {
 	// We don't support operator overloading on base types, because
 	// there seems little use for it frankly.
 	if (method->operator)
 	{
-		RETURN_SEMA_ERROR(method_find_overload_attribute(method),
-						  "Only user-defined types support operator oveloading.");
+		sema_error_at(context, method_find_overload_span(method),
+					  "Only user-defined types support operator oveloading.");
+		return false;
 	}
 
 	// Add it to the right list of extensions.
 	switch (method->visibility)
 	{
 		case VISIBLE_PUBLIC:
-			vec_add(global_context.method_extensions, method);
+			vec_add(compiler.context.method_extensions, method);
 			break;
 		case VISIBLE_PRIVATE:
 			vec_add(unit->module->private_method_extensions, method);
@@ -1835,8 +1843,8 @@ INLINE bool sema_analyse_operator_method(SemaContext *context, Type *parent_type
 	Decl *other = sema_find_operator(context, parent_type, operator);
 	if (other)
 	{
-		Attr *attr = method_find_overload_attribute(method);
-		SEMA_ERROR(attr->exprs[0], "This operator is already defined for '%s'.", parent_type->name);
+		SourceSpan span = method_find_overload_span(method);
+		sema_error_at(context, span, "This operator is already defined for '%s'.", parent_type->name);
 		SEMA_NOTE(other, "The previous definition was here.");
 		return false;
 	}
@@ -1947,7 +1955,7 @@ static inline bool unit_add_method(SemaContext *context, Type *parent_type, Decl
 	// Did we already define it externally?
 	Decl *other = sema_find_extension_method_in_list(unit->local_method_extensions, parent_type, name);
 	if (!other) sema_find_extension_method_in_list(unit->module->private_method_extensions, parent_type, name);
-	if (!other) sema_find_extension_method_in_list(global_context.method_extensions, parent_type, name);
+	if (!other) sema_find_extension_method_in_list(compiler.context.method_extensions, parent_type, name);
 	if (other)
 	{
 		SEMA_ERROR(method, "This %s is already defined.", method_name_by_decl(method));
@@ -2013,15 +2021,17 @@ static inline bool unit_add_method(SemaContext *context, Type *parent_type, Decl
  * Find an interface name by searching through its own interfaces as well as any
  * parents to the interface.
  */
-static Decl *sema_interface_method_by_name(Decl *interface, const char *name)
+static Decl *sema_interface_method_by_name(SemaContext *context, Decl *interface, const char *name)
 {
+	if (!sema_analyse_decl(context, interface)) return poisoned_decl;
 	FOREACH(Decl *, method, interface->interface_methods)
 	{
 		if (method->name == name) return method;
 	}
 	FOREACH(TypeInfo *, parent_type, interface->interfaces)
 	{
-		Decl *res = sema_interface_method_by_name(parent_type->type->decl, name);
+		if (!sema_resolve_type_info(context, parent_type, RESOLVE_TYPE_DEFAULT)) return poisoned_decl;
+		Decl *res = sema_interface_method_by_name(context, parent_type->type->decl, name);
 		if (res) return res;
 	}
 	return NULL;
@@ -2062,9 +2072,12 @@ static inline Decl *sema_find_interface_for_method(SemaContext *context, Canonic
 	// Walk through all implemented interfaces.
 	FOREACH(TypeInfo *, proto, parent_type->decl->interfaces)
 	{
+		if (!sema_resolve_type_info(context, proto, RESOLVE_TYPE_DEFAULT)) return poisoned_decl;
 		Decl *interface = proto->type->decl;
-		Decl *match = sema_interface_method_by_name(interface, name);
+		Decl *match = sema_interface_method_by_name(context, interface, name);
+		if (!decl_ok(match)) return poisoned_decl;
 		if (!match) continue;
+		assert(interface->resolve_status == RESOLVE_DONE);
 
 		// Is there a already a match?
 		if (first_match)
@@ -2220,6 +2233,7 @@ static inline bool sema_analyse_method(SemaContext *context, Decl *decl)
 		// If it's implementing a method, check it.
 		if (implemented_method)
 		{
+			assert(implemented_method->resolve_status == RESOLVE_DONE);
 			if (!sema_compare_method_with_interface(context, decl, implemented_method)) return false;
 			decl->func_decl.interface_method = declid(implemented_method);
 		}
@@ -2304,7 +2318,7 @@ static bool update_call_abi_from_string(SemaContext *context, Decl *decl, Expr *
 	// Check veccall
 	if (str_eq(str, "veccall"))
 	{
-		switch (platform_target.arch)
+		switch (compiler.platform.arch)
 		{
 			case ARCH_TYPE_X86_64:
 				return update_abi(decl, CALL_X64_VECTOR);
@@ -2324,7 +2338,7 @@ static bool update_call_abi_from_string(SemaContext *context, Decl *decl, Expr *
 	// Finally check stdcall.
 	if (strcmp(str, "stdcall") == 0)
 	{
-		if (platform_target.arch == ARCH_TYPE_ARM || platform_target.arch == ARCH_TYPE_ARMB)
+		if (compiler.platform.arch == ARCH_TYPE_ARM || compiler.platform.arch == ARCH_TYPE_ARMB)
 		{
 			return update_abi(decl, CALL_AAPCS);
 		}
@@ -2340,7 +2354,7 @@ static bool update_call_abi_from_string(SemaContext *context, Decl *decl, Expr *
 /**
  * Analyse almost all attributes.
  */
-static bool sema_analyse_attribute(SemaContext *context, Decl *decl, Attr *attr, AttributeDomain domain, bool *erase_decl)
+static bool sema_analyse_attribute(SemaContext *context, ResolvedAttrData *attr_data, Decl *decl, Attr *attr, AttributeDomain domain, bool *erase_decl)
 {
 	AttributeType type = attr->attr_kind;
 	assert(type >= 0 && type < NUMBER_OF_ATTRIBUTES);
@@ -2384,6 +2398,7 @@ static bool sema_analyse_attribute(SemaContext *context, Decl *decl, Attr *attr,
 			[ATTRIBUTE_REFLECT] = ATTR_FUNC | ATTR_GLOBAL | ATTR_CONST | USER_DEFINED_TYPES,
 			[ATTRIBUTE_SAFEMACRO] = ATTR_MACRO,
 			[ATTRIBUTE_SECTION] = ATTR_FUNC | ATTR_CONST | ATTR_GLOBAL,
+			[ATTRIBUTE_TAG] = ATTR_BITSTRUCT_MEMBER | ATTR_MEMBER | USER_DEFINED_TYPES | CALLABLE_TYPE,
 			[ATTRIBUTE_TEST] = ATTR_FUNC,
 			[ATTRIBUTE_UNUSED] = (AttributeDomain)~(ATTR_CALL),
 			[ATTRIBUTE_USED] = (AttributeDomain)~(ATTR_CALL),
@@ -2400,7 +2415,7 @@ static bool sema_analyse_attribute(SemaContext *context, Decl *decl, Attr *attr,
 
 	// No attribute has more than one argument right now.
 	unsigned args = vec_size(attr->exprs);
-	if (args > 1 && type != ATTRIBUTE_LINK)
+	if (args > 1 && type != ATTRIBUTE_LINK && type != ATTRIBUTE_TAG)
 	{
 		SEMA_ERROR(attr->exprs[1], "Too many arguments for the attribute.");
 		return false;
@@ -2416,7 +2431,12 @@ static bool sema_analyse_attribute(SemaContext *context, Decl *decl, Attr *attr,
 			// These are pseudo-attributes and are processed separately.
 			UNREACHABLE;
 		case ATTRIBUTE_DEPRECATED:
+			if (attr_data->deprecated)
+			{
+				RETURN_SEMA_ERROR(attr, "There can't be more than a single '@deprecated' tag.");
+			}
 			// We expect an optional string.
+			attr_data->deprecated = "";
 			if (expr)
 			{
 				if (!sema_analyse_expr(context, expr)) return false;
@@ -2424,8 +2444,8 @@ static bool sema_analyse_attribute(SemaContext *context, Decl *decl, Attr *attr,
 				{
 					RETURN_SEMA_ERROR(expr, "Expected a constant string value as argument.");
 				}
+				attr_data->deprecated = expr->const_expr.bytes.ptr;
 			}
-			decl->is_deprecated = true;
 			return true;
 		case ATTRIBUTE_OPTIONAL:
 			decl->func_decl.attr_optional = true;
@@ -2447,6 +2467,29 @@ static bool sema_analyse_attribute(SemaContext *context, Decl *decl, Attr *attr,
 		case ATTRIBUTE_BENCHMARK:
 			decl->func_decl.attr_benchmark = true;
 			break;
+		case ATTRIBUTE_TAG:
+		{
+			decl->has_tag = true;
+			if (args != 2) RETURN_SEMA_ERROR(attr, "'@tag' requires two arguments.");
+			Expr *string = attr->exprs[0];
+			Expr *val = attr->exprs[1];
+			if (!sema_analyse_expr(context, string)) return false;
+			if (!sema_cast_const(string) || !expr_is_const_string(string)) RETURN_SEMA_ERROR(string, "Expected a constant string here, usage is: '@tag(name, value)'.");
+			if (!sema_analyse_expr(context, val)) return false;
+			if (!sema_cast_const(val) || !expr_is_const(val)) RETURN_SEMA_ERROR(val, "Expected a constant value here, usage is: '@tag(name, value)'.");
+			const char *name = string->const_expr.bytes.ptr;
+			FOREACH_IDX(i, Attr *, tag, attr_data->tags)
+			{
+				// Overwrite if already found
+				if (str_eq(tag->exprs[0]->const_expr.bytes.ptr, name))
+				{
+					attr_data->tags[i] = attr;
+					return true;
+				}
+			}
+			vec_add(attr_data->tags, attr);
+			return true;
+		}
 		case ATTRIBUTE_TEST:
 			decl->func_decl.attr_test = true;
 			break;
@@ -2454,6 +2497,10 @@ static bool sema_analyse_attribute(SemaContext *context, Decl *decl, Attr *attr,
 		{
 			assert(decl->decl_kind == DECL_FUNC || decl->decl_kind == DECL_MACRO);
 			if (!expr) goto FAILED_OP_TYPE;
+			if (decl->operator)
+			{
+				RETURN_SEMA_ERROR(attr, "This method already has overload, it can't match multiple ones.");
+			}
 			switch (expr->expr_kind)
 			{
 				case EXPR_IDENTIFIER:
@@ -2467,10 +2514,10 @@ static bool sema_analyse_attribute(SemaContext *context, Decl *decl, Attr *attr,
 				default:
 					goto FAILED_OP_TYPE;
 			}
+			attr_data->overload = attr->span;
 			if (!decl->func_decl.type_parent)
 			{
-				SEMA_ERROR(expr, "@operator(...) can only be used with methods.");
-				return false;
+				RETURN_SEMA_ERROR(expr, "@operator(...) can only be used with methods.");
 			}
 			return true;
 			FAILED_OP_TYPE:
@@ -2548,21 +2595,19 @@ static bool sema_analyse_attribute(SemaContext *context, Decl *decl, Attr *attr,
 			Expr *cond = args > 1 ? attr->exprs[0] : NULL;
 			if (cond && !sema_analyse_expr(context, cond)) return false;
 			int start = 0;
-			decl->has_link = true;
+			bool has_link = true;
 			if (cond && expr_is_const_bool(cond))
 			{
 				start = 1;
-				decl->has_link = cond->const_expr.b;
+				has_link = cond->const_expr.b;
 			}
 			for (unsigned i = start; i < args; i++)
 			{
 				Expr *string = attr->exprs[i];
 				if (!sema_analyse_expr(context, string)) return false;
 				if (!expr_is_const_string(string)) RETURN_SEMA_ERROR(string, "Expected a constant string here, usage is: '@link(cond1, link1, link2, ...)'.");
+				if (has_link) vec_add(attr_data->links, string->const_expr.bytes.ptr);
 			}
-			// Erase if not applicable.
-			if (start == 1) attr->exprs[0] = NULL;
-			if (!decl->has_link) attr->exprs = NULL;
 			return true;
 		case ATTRIBUTE_INIT:
 			decl->func_decl.attr_init = true;
@@ -2601,7 +2646,7 @@ static bool sema_analyse_attribute(SemaContext *context, Decl *decl, Attr *attr,
 			{
 				case ATTRIBUTE_SECTION:
 					if (!sema_check_section(context, attr)) return false;
-					decl->section_id = global_context_register_section(expr->const_expr.bytes.ptr);
+					attr_data->section = expr->const_expr.bytes.ptr;
 					break;
 				case ATTRIBUTE_EXTERN:
 					decl->has_extname = true;
@@ -2711,7 +2756,7 @@ static bool sema_analyse_attribute(SemaContext *context, Decl *decl, Attr *attr,
 }
 
 
-static inline bool sema_analyse_custom_attribute(SemaContext *context, Decl *decl, Attr *attr, AttributeDomain domain,
+static inline bool sema_analyse_custom_attribute(SemaContext *context, ResolvedAttrData *attr_data_ref, Decl *decl, Attr *attr, AttributeDomain domain,
                                             Decl *top, bool *erase_decl)
 {
 	// Custom attributes.
@@ -2729,6 +2774,7 @@ static inline bool sema_analyse_custom_attribute(SemaContext *context, Decl *dec
 	// Handle the case where the current function is the declaration itself.
 	if (context->call_env.kind == CALL_ENV_ATTR && context->call_env.attr_declaration == attr_decl)
 	{
+		decl_poison(attr_decl);
 		RETURN_SEMA_ERROR(attr_decl, "Recursive declaration of attribute '%s' – it contains itself.",
 		                  attr_decl->name);
 	}
@@ -2777,7 +2823,7 @@ static inline bool sema_analyse_custom_attribute(SemaContext *context, Decl *dec
 	}
 	// Now we've added everything to the evaluation context, so we can (recursively)
 	// apply it to the contained attributes, which in turn may be derived attributes.
-	if (!sema_analyse_attributes_inner(&eval_context, decl, attributes, domain, top ? top : attr_decl, erase_decl)) goto ERR;
+	if (!sema_analyse_attributes_inner(&eval_context, attr_data_ref, decl, attributes, domain, top ? top : attr_decl, erase_decl)) goto ERR;
 	// Then destroy the eval context.
 	sema_context_destroy(&eval_context);
 	// Stop evaluating on erase.
@@ -2788,8 +2834,8 @@ ERR:
 }
 
 // TODO consider doing this evaluation early, it should be possible.
-static bool sema_analyse_attributes_inner(SemaContext *context, Decl *decl, Attr **attrs, AttributeDomain domain,
-										  Decl *top, bool *erase_decl)
+static bool sema_analyse_attributes_inner(SemaContext *context, ResolvedAttrData *attr_data_ref, Decl *decl, Attr **attrs, AttributeDomain domain,
+                                          Decl *top, bool *erase_decl)
 {
 	// Detect cycles of the type @Foo = @BarCyclic, @BarCyclic = @BarCyclic
 	if (context->macro_call_depth > 1024)
@@ -2803,12 +2849,12 @@ static bool sema_analyse_attributes_inner(SemaContext *context, Decl *decl, Attr
 	{
 		if (attr->is_custom)
 		{
-			if (!sema_analyse_custom_attribute(context, decl, attr, domain, top, erase_decl)) return false;
+			if (!sema_analyse_custom_attribute(context, attr_data_ref, decl, attr, domain, top, erase_decl)) return false;
 		}
 		else
 		{
 			// The simple case, we have a built in attribute:
-			if (!sema_analyse_attribute(context, decl, attr, domain, erase_decl)) return false;
+			if (!sema_analyse_attribute(context, attr_data_ref, decl, attr, domain, erase_decl)) return false;
 		}
 		if (*erase_decl) return true;
 	}
@@ -2818,7 +2864,21 @@ static bool sema_analyse_attributes_inner(SemaContext *context, Decl *decl, Attr
 static bool sema_analyse_attributes(SemaContext *context, Decl *decl, Attr **attrs, AttributeDomain domain,
 									bool *erase_decl)
 {
-	return sema_analyse_attributes_inner(context, decl, attrs, domain, NULL, erase_decl);
+	ResolvedAttrData data = { .tags = NULL, .overload = INVALID_SPAN };
+	if (!sema_analyse_attributes_inner(context, &data, decl, attrs, domain, NULL, erase_decl)) return false;
+	if (*erase_decl) return true;
+	decl->resolved_attributes = true;
+	if (data.tags || data.deprecated || data.links || data.section || data.overload.row)
+	{
+		ResolvedAttrData *copy = MALLOCS(ResolvedAttrData);
+		*copy = data;
+		decl->attrs_resolved = copy;
+	}
+	else
+	{
+		decl->attrs_resolved = NULL;
+	}
+	return true;
 }
 
 static inline bool sema_analyse_doc_header(SemaContext *context, AstId doc,
@@ -2868,15 +2928,15 @@ static inline bool sema_analyse_doc_header(SemaContext *context, AstId doc,
 		}
 		switch (directive->contract_stmt.param.modifier)
 		{
-			case PARAM_ANY:
+			case INOUT_ANY:
 				goto ADDED;
-			case PARAM_IN:
+			case INOUT_IN:
 				param->var.in_param = true;
 				break;
-			case PARAM_OUT:
+			case INOUT_OUT:
 				param->var.out_param = true;
 				break;
-			case PARAM_INOUT:
+			case INOUT_INOUT:
 				break;
 		}
 		if (!may_be_pointer && type->type_kind != TYPE_SLICE)
@@ -2892,7 +2952,7 @@ static inline MainType sema_find_main_type(SemaContext *context, Signature *sig,
 {
 	Decl **params = sig->params;
 	unsigned param_count = vec_size(params);
-	bool is_win32 = platform_target.os == OS_TYPE_WIN32;
+	bool is_win32 = compiler.platform.os == OS_TYPE_WIN32;
 	Type *arg_type, *arg_type2;
 	switch (param_count)
 	{
@@ -3105,7 +3165,7 @@ static inline bool sema_analyse_main_function(SemaContext *context, Decl *decl)
 {
 	assert(decl != context->unit->main_function);
 	bool is_winmain = decl->func_decl.attr_winmain;
-	bool is_win32 = platform_target.os == OS_TYPE_WIN32;
+	bool is_win32 = compiler.platform.os == OS_TYPE_WIN32;
 	if (decl->visibility != VISIBLE_PUBLIC)
 	{
 		SEMA_ERROR(decl, "A main function must be public.");
@@ -3136,9 +3196,9 @@ static inline bool sema_analyse_main_function(SemaContext *context, Decl *decl)
 	// At this point the style is either MAIN_INT_VOID, MAIN_VOID_VOID or MAIN_ERR_VOID
 	MainType type = sema_find_main_type(context, signature, is_winmain);
 	if (type == MAIN_TYPE_ERROR) return false;
-	if (active_target.type == TARGET_TYPE_TEST || active_target.type == TARGET_TYPE_BENCHMARK) return true;
+	if (compiler.build.type == TARGET_TYPE_TEST || compiler.build.type == TARGET_TYPE_BENCHMARK) return true;
 	Decl *function;
-	if (active_target.no_entry)
+	if (compiler.build.no_entry)
 	{
 		function = decl;
 		goto REGISTER_MAIN;
@@ -3148,7 +3208,7 @@ static inline bool sema_analyse_main_function(SemaContext *context, Decl *decl)
 		RETURN_SEMA_ERROR(rtype_info, "Int return is required for a C style main.");
 	}
 	// Suppress winmain on non-win32
-	if (platform_target.os != OS_TYPE_WIN32) is_winmain = false;
+	if (compiler.platform.os != OS_TYPE_WIN32) is_winmain = false;
 
 	if ((type == MAIN_TYPE_RAW || type == MAIN_TYPE_NO_ARGS) && is_int_return && !is_winmain)
 	{
@@ -3160,20 +3220,20 @@ static inline bool sema_analyse_main_function(SemaContext *context, Decl *decl)
 		goto REGISTER_MAIN;
 	}
 	bool use_wmain = is_win32 && !is_winmain && type != MAIN_TYPE_NO_ARGS;
-	active_target.win.use_win_subsystem = is_winmain && is_win32;
+	compiler.build.win.use_win_subsystem = is_winmain && is_win32;
 	function = sema_create_synthetic_main(context, decl, type, is_int_return, is_err_return, is_winmain, use_wmain);
 	if (!decl_ok(function)) return false;
 REGISTER_MAIN:
 	context->unit->main_function = function;
-	if (global_context.main)
+	if (compiler.context.main)
 	{
 		SEMA_ERROR(function, "Duplicate main functions found.");
-		SEMA_NOTE(global_context.main, "The first one was found here.");
+		SEMA_NOTE(compiler.context.main, "The first one was found here.");
 		return false;
 	}
 	else
 	{
-		global_context.main = function;
+		compiler.context.main = function;
 	}
 	return true;
 }
@@ -3756,11 +3816,12 @@ bool sema_analyse_var_decl(SemaContext *context, Decl *decl, bool local)
 	                                                : RESOLVE_TYPE_DEFAULT)) return decl_poison(decl);
 
 	Type *type = decl->type = type_info->type;
-	if (!sema_analyse_decl_type(context, decl->type, type_info->span)) return decl_poison(decl);
+	if (!sema_analyse_decl_type(context, type, type_info->span)) return decl_poison(decl);
 
 	type = type_no_optional(type);
 	if (type_is_user_defined(type) && type->decl)
 	{
+		if (!sema_analyse_decl(context, type->decl)) return false;
 		sema_display_deprecated_warning_on_use(context, type->decl, type_info->span);
 	}
 
@@ -4011,7 +4072,7 @@ static bool sema_generate_parameterized_name_to_scratch(SemaContext *context, Mo
 				char *maybe_neg = &scratch_buffer.str[scratch_buffer.len];
 				if (type->type_kind == TYPE_I128 || type->type_kind == TYPE_U128)
 				{
-					char *str = int_to_str(param->const_expr.ixx, 10);
+					char *str = int_to_str(param->const_expr.ixx, 10, false);
 					scratch_buffer_append(str);
 				}
 				else
@@ -4153,7 +4214,7 @@ Decl *sema_analyse_parameterized_identifier(SemaContext *c, Path *decl_path, con
 			sema_analyze_stage(instantiated_module, c->unit->module->stage - 1);
 		}
 	}
-	if (global_context.errors_found) return poisoned_decl;
+	if (compiler.context.errors_found) return poisoned_decl;
 	Decl *symbol = module_find_symbol(instantiated_module, name);
 	if (!symbol)
 	{

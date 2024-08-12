@@ -5,16 +5,20 @@
 
 #include "../utils/lib.h"
 #include "../version.h"
+#include <stdint.h>
 
-#define MAX_LIB_DIRS 1024
-#define MAX_FILES 2048
-#define MAX_ARGS 2048
-#define MAX_INCLUDES 2048
+#define MAX_BUILD_LIB_DIRS 1024
+#define MAX_COMMAND_LINE_FILES 2048
+#define MAX_COMMAND_LINE_RUN_ARGS 2048
 #define MAX_THREADS 0xFFFF
 #define DEFAULT_SYMTAB_SIZE (256 * 1024)
 #define DEFAULT_SWITCHRANGE_MAX_SIZE (256)
 
-typedef enum { BACKEND_LLVM = 1, BACKEND_TB = 2 } CompilerBackend;
+typedef enum
+{
+	BACKEND_LLVM = 1,
+	BACKEND_TB = 2
+} CompilerBackend;
 
 typedef enum
 {
@@ -47,9 +51,7 @@ typedef enum
 typedef enum
 {
 	SUBCOMMAND_MISSING = 0,
-	SUBCOMMAND_VIEW,
-	SUBCOMMAND_ADD,
-	SUBCOMMAND_UPDATE
+	SUBCOMMAND_VIEW
 } ProjectSubcommand;
 
 typedef enum
@@ -382,17 +384,17 @@ typedef struct ProjectSubcommandOptions_
 
 typedef struct BuildOptions_
 {
-	const char *lib_dir[MAX_LIB_DIRS];
-	int lib_dir_count;
-	const char *libs[MAX_LIB_DIRS];
-	int lib_count;
-	const char *linker_args[MAX_LIB_DIRS];
-	int linker_arg_count;
-	const char *linker_lib_dir[MAX_LIB_DIRS];
-	int linker_lib_dir_count;
-	const char *linker_libs[MAX_LIB_DIRS];
-	int linker_lib_count;
-	const char *std_lib_dir;
+	const char *lib_dir[MAX_BUILD_LIB_DIRS];
+	size_t lib_dir_count;
+	const char *libs[MAX_BUILD_LIB_DIRS];
+	size_t lib_count;
+	const char* linker_args[MAX_BUILD_LIB_DIRS];
+	size_t linker_arg_count;
+	const char* linker_lib_dir[MAX_BUILD_LIB_DIRS];
+	size_t linker_lib_dir_count;
+	const char* linker_libs[MAX_BUILD_LIB_DIRS];
+	size_t linker_lib_count;
+	const char* std_lib_dir;
 	VectorConv vector_conv;
 	struct
 	{
@@ -426,6 +428,7 @@ typedef struct BuildOptions_
 	const char *custom_linker_path;
 	uint32_t symtab_size;
 	unsigned version;
+	bool silence_deprecation;
 	CompilerBackend backend;
 	CompilerCommand command;
 	ProjectSubcommandOptions project_options;
@@ -499,6 +502,7 @@ typedef struct
 	WinCrtLinking win_crt;
 	const char **csource_dirs;
 	const char **csources;
+	const char **cinclude_dirs;
 	const char **execs;
 	const char **link_flags;
 	const char **linked_libs;
@@ -514,6 +518,7 @@ typedef struct Library__
 	const char *cc;
 	const char *cflags;
 	const char **csource_dirs;
+	const char **cinclude_dirs;
 	WinCrtLinking win_crt;
 	LibraryTarget *target_used;
 	LibraryTarget **targets;
@@ -523,11 +528,12 @@ typedef struct
 {
 	TargetType type;
 	Library **library_list;
-	LibraryTarget **ccompling_libraries;
+	LibraryTarget **ccompiling_libraries;
 	const char *name;
 	const char *version;
 	const char *langrev;
 	const char **source_dirs;
+	const char **test_source_dirs;
 	const char **sources;
 	const char **libdirs;
 	const char **libs;
@@ -563,6 +569,7 @@ typedef struct
 	bool print_linking;
 	bool no_entry;
 	bool kernel_build;
+	bool silence_deprecation;
 	int build_threads;
 	TrustLevel trust_level;
 	OptimizationSetting optsetting;
@@ -595,6 +602,7 @@ typedef struct
 	const char *cflags;
 	const char **csource_dirs;
 	const char **csources;
+	const char **cinclude_dirs;
 	const char **exec;
 	const char **feature_list;
 	const char *custom_linker_path;
@@ -633,49 +641,64 @@ typedef struct
 } BuildTarget;
 
 static const char *x86_cpu_set[8] = {
-	[X86CPU_BASELINE] = "baseline",[X86CPU_SSSE3] = "ssse3",
-	[X86CPU_SSE4] = "sse4",[X86CPU_AVX1] = "avx1",
-	[X86CPU_AVX2_V1] = "avx2-v1",[X86CPU_AVX2_V2] = "avx2-v2",
-	[X86CPU_AVX512] = "avx512",[X86CPU_NATIVE] = "native" };
+	[X86CPU_BASELINE] = "baseline", // NOLINT
+	[X86CPU_SSSE3] = "ssse3",
+	[X86CPU_SSE4] = "sse4",
+	[X86CPU_AVX1] = "avx1",
+	[X86CPU_AVX2_V1] = "avx2-v1",
+	[X86CPU_AVX2_V2] = "avx2-v2",
+	[X86CPU_AVX512] = "avx512",
+	[X86CPU_NATIVE] = "native"
+};
 
 static BuildTarget default_build_target = {
-	.optlevel = OPTIMIZATION_NOT_SET,
-	.optsetting = OPT_SETTING_NOT_SET,
-	.memory_environment = MEMORY_ENV_NORMAL,
-	.optsize = SIZE_OPTIMIZATION_NOT_SET,
-	.arch_os_target = ARCH_OS_TARGET_DEFAULT,
-	.debug_info = DEBUG_INFO_NOT_SET,
-	.show_backtrace = SHOW_BACKTRACE_NOT_SET,
-	.use_stdlib = USE_STDLIB_NOT_SET,
-	.link_libc = LINK_LIBC_NOT_SET,
-	.emit_stdlib = EMIT_STDLIB_NOT_SET,
-	.linker_type = LINKER_TYPE_NOT_SET,
-	.single_module = SINGLE_MODULE_NOT_SET,
-	.unroll_loops = UNROLL_LOOPS_NOT_SET,
-	.merge_functions = MERGE_FUNCTIONS_NOT_SET,
-	.slp_vectorization = VECTORIZATION_NOT_SET,
-	.loop_vectorization = VECTORIZATION_NOT_SET,
-	.strip_unused = STRIP_UNUSED_NOT_SET,
-	.symtab_size = DEFAULT_SYMTAB_SIZE,
-	.reloc_model = RELOC_DEFAULT,
-	.cc = NULL,
-	.version = "1.0.0",
-	.langrev = "1",
-	.cpu = "generic",
-	.type = TARGET_TYPE_EXECUTABLE,
-	.feature.x86_struct_return = STRUCT_RETURN_DEFAULT,
-	.feature.soft_float = SOFT_FLOAT_DEFAULT,
-	.feature.fp_math = FP_DEFAULT,
-	.feature.trap_on_wrap = false,
-	.feature.riscv_float_capability = RISCVFLOAT_DEFAULT,
-	.feature.x86_vector_capability = X86VECTOR_DEFAULT,
-	.feature.x86_cpu_set = X86CPU_DEFAULT,
-	.feature.safe_mode = SAFETY_NOT_SET,
-	.feature.panic_level = PANIC_NOT_SET,
-	.win.crt_linking = WIN_CRT_DEFAULT,
-	.win.def = NULL,
-	.switchrange_max_size = DEFAULT_SWITCHRANGE_MAX_SIZE,
+		.optlevel = OPTIMIZATION_NOT_SET,
+		.optsetting = OPT_SETTING_NOT_SET,
+		.memory_environment = MEMORY_ENV_NORMAL,
+		.optsize = SIZE_OPTIMIZATION_NOT_SET,
+		.arch_os_target = ARCH_OS_TARGET_DEFAULT,
+		.debug_info = DEBUG_INFO_NOT_SET,
+		.show_backtrace = SHOW_BACKTRACE_NOT_SET,
+		.use_stdlib = USE_STDLIB_NOT_SET,
+		.link_libc = LINK_LIBC_NOT_SET,
+		.emit_stdlib = EMIT_STDLIB_NOT_SET,
+		.linker_type = LINKER_TYPE_NOT_SET,
+		.single_module = SINGLE_MODULE_NOT_SET,
+		.unroll_loops = UNROLL_LOOPS_NOT_SET,
+		.merge_functions = MERGE_FUNCTIONS_NOT_SET,
+		.slp_vectorization = VECTORIZATION_NOT_SET,
+		.loop_vectorization = VECTORIZATION_NOT_SET,
+		.strip_unused = STRIP_UNUSED_NOT_SET,
+		.symtab_size = DEFAULT_SYMTAB_SIZE,
+		.reloc_model = RELOC_DEFAULT,
+		.cc = NULL,
+		.version = "1.0.0",
+		.langrev = "1",
+		.cpu = "generic",
+		.type = TARGET_TYPE_EXECUTABLE,
+		.feature.x86_struct_return = STRUCT_RETURN_DEFAULT,
+		.feature.soft_float = SOFT_FLOAT_DEFAULT,
+		.feature.fp_math = FP_DEFAULT,
+		.feature.trap_on_wrap = false,
+		.feature.riscv_float_capability = RISCVFLOAT_DEFAULT,
+		.feature.x86_vector_capability = X86VECTOR_DEFAULT,
+		.feature.x86_cpu_set = X86CPU_DEFAULT,
+		.feature.safe_mode = SAFETY_NOT_SET,
+		.feature.panic_level = PANIC_NOT_SET,
+		.win.crt_linking = WIN_CRT_DEFAULT,
+		.win.def = NULL,
+		.switchrange_max_size = DEFAULT_SWITCHRANGE_MAX_SIZE,
 };
+
+extern const char *project_default_keys[][2];
+extern const int project_default_keys_count;
+extern const char *project_target_keys[][2];
+extern const int project_target_keys_count;
+extern const char *manifest_default_keys[][2];
+extern const int manifest_default_keys_count;
+extern const char *manifest_target_keys[][2];
+extern const int manifest_target_keys_count;
+extern char *arch_os_target[ARCH_OS_TARGET_LAST + 1];
 
 BuildOptions parse_arguments(int argc, const char *argv[]);
 ArchOsTarget arch_os_target_from_string(const char *target);

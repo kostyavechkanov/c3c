@@ -23,6 +23,8 @@ const char* JSON_EXE =
 		"  // C sources if the project also compiles C sources\n"
 		"  // relative to the project file.\n"
 		"  // \"c-sources\": [ \"csource/**\" ],\n"
+		"  // Include directories for C sources relative to the project file.\n"
+		"  // \"c-include-dirs\": [ \"csource/include\" ],\n"
 		"  // Output location, relative to project file.\n"
 		"  \"output\": \"build\",\n"
 		"  // Architecture and OS target.\n"
@@ -64,6 +66,8 @@ const char* JSON_STATIC =
 		"  // C sources if the project also compiles C sources\n"
 		"  // relative to the project file.\n"
 		"  // \"c-sources\": [ \"csource/**\" ],\n"
+		"  // Include directories for C sources relative to the project file.\n"
+		"  // \"c-include-dirs\": [ \"csource/include\" ],\n"
 		"  // Output location, relative to project file.\n"
 		"  \"output\": \"build\",\n"
 		"  // Architecture and OS target.\n"
@@ -103,6 +107,8 @@ const char* JSON_DYNAMIC =
 		"  // C sources if the project also compiles C sources\n"
 		"  // relative to the project file.\n"
 		"  // \"c-sources\": [ \"csource/**\" ],\n"
+		"  // Include directories for C sources relative to the project file.\n"
+		"  // \"c-include-dirs\": [ \"csource/include\" ],\n"
 		"  // Output location, relative to project file.\n"
 		"  \"output\": \"build\",\n"
 		"  // Architecture and OS target.\n"
@@ -134,11 +140,11 @@ const char *MANIFEST_TEMPLATE =
 const char *MANIFEST_TARGET =
 		"    \"%s\" : {\n"
 		"      // Extra flags to the linker for this target:\n"
-		"      \"linkflags\" : [],\n"
+		"      \"link-args\" : [],\n"
 		"      // C3 libraries this target depends on:\n"
 		"      \"dependencies\" : [],\n"
 		"      // The external libraries to link for this target:\n"
-		"      \"linked-libs\" : []\n"
+		"      \"linked-libraries\" : []\n"
 		"    },\n";
 
 const char *MAIN_TEMPLATE =

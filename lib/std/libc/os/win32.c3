@@ -1,5 +1,5 @@
 module libc @if(env::WIN32);
-
+import std::os::win32;
 
 extern fn CFile __acrt_iob_func(CInt c);
 extern fn CInt _close(Fd fd); def close = _close;
@@ -15,11 +15,13 @@ extern fn Time_t _mkgmtime64(Tm* timeptr); def timegm = _mkgmtime64;
 extern fn Time_t _mktime64(Tm *timeptr); def mktime = _mktime64;
 extern fn usz _msize(void* ptr);
 extern fn CInt _read(Fd fd, void* buffer, CUInt buffer_size);
-extern fn CInt _setjmp(void* frameptr, JmpBuf* buffer) @if(env::WIN32);
+extern fn CInt _setjmp(JmpBuf* buffer, void* frameptr);
 extern fn CFile _wfopen(WString, WString);
 extern fn CFile _wfreopen(WString, WString, CFile);
 extern fn CInt _write(Fd fd, void* buffer, CUInt count);
 extern fn CInt _wremove(WString);
+extern fn int recv(Win32_SOCKET s, void* buf, int len, int flags);
+extern fn int send(Win32_SOCKET s, void* buf, int len, int flags);
 
 struct SystemInfo
 {
@@ -45,7 +47,7 @@ extern fn CInt get_system_info(SystemInfo*) @extern("GetSystemInfo");
 
 // Aliases to simplify libc use
 macro Tm* localtime_r(Time_t* timer, Tm* buf) => _localtime64_s(buf, timer);
-macro CInt setjmp(JmpBuf* buffer) => _setjmp($$frameaddress(0), buffer);
+macro CInt setjmp(JmpBuf* buffer) => _setjmp(buffer, null);
 macro Tm* gmtime_r(Time_t* timer, Tm* buf) => _gmtime64_s(buf, timer);
 macro isz read(Fd fd, void* buffer, usz buffer_size) => _read(fd, buffer, (CUInt)buffer_size);
 macro isz write(Fd fd, void* buffer, usz count) => _write(fd, buffer, (CUInt)count);
