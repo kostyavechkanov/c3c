@@ -13,7 +13,7 @@ JSONObject empty_obj_val = { .type = J_OBJECT, .member_len = 0 };
 
 #define CONSUME(token_) do { if (!consume(parser, token_)) { json_error(parser, "Unexpected character encountered."); return &error; } } while(0)
 
-static inline void json_skip_whitespace(JsonParser* parser)
+static inline void json_skip_whitespace(JsonParser *parser)
 {
 	char c;
 	while (1)
@@ -51,9 +51,9 @@ static inline void json_skip_whitespace(JsonParser* parser)
 	}
 }
 
-static bool json_match(JsonParser* parser, const char* str)
+static bool json_match(JsonParser *parser, const char *str)
 {
-	const char* curr = parser->current;
+	const char *curr = parser->current;
 	while (str[0] != '\0')
 	{
 		if (str++[0] != curr++[0]) return false;
@@ -62,13 +62,13 @@ static bool json_match(JsonParser* parser, const char* str)
 }
 
 
-void json_error(JsonParser* parser, const char* error_message)
+void json_error(JsonParser *parser, const char *error_message)
 {
 	if (!parser->error_message) parser->error_message = error_message;
 	parser->current_token_type = T_ERROR;
 }
 
-static void json_parse_number(JsonParser* parser)
+static void json_parse_number(JsonParser *parser)
 {
 	char c = parser->current[0];
 	bool negate = c == '-';
@@ -96,17 +96,17 @@ static void json_parse_number(JsonParser* parser)
 	parser->last_number = value;
 }
 
-static void json_parse_comment_line(JsonParser* parser)
+static void json_parse_comment_line(JsonParser *parser)
 {
 	parser->current_token_type = T_COMMENT;
 
-	const char* current = ++parser->current;
+	const char *current = ++parser->current;
 	char c;
 	while (c = current++[0], c != '\0' && c != '\n') { current++; }
 
 	size_t max_size = current - parser->current;
-	char* str = parser->allocator(max_size + 1);
-	char* str_current = str;
+	char *str = parser->allocator(max_size + 1);
+	char *str_current = str;
 	parser->last_string = str;
 	str_current[0] = '\0';
 
@@ -133,18 +133,18 @@ static void json_parse_comment_line(JsonParser* parser)
 
 }
 
-static void json_parse_string(JsonParser* parser)
+static void json_parse_string(JsonParser *parser)
 {
 	parser->current_token_type = T_STRING;
-	const char* current = ++parser->current;
+	const char *current = ++parser->current;
 	char c;
 	while (c = current++[0], c != '\0' && c != '"')
 	{
 		if (c == '\\' && current[0] != '\0') current++;
 	}
 	size_t max_size = current - parser->current;
-	char* str = parser->allocator(max_size + 1);
-	char* str_current = str;
+	char *str = parser->allocator(max_size + 1);
+	char *str_current = str;
 	while (1)
 	{
 		c = parser->current++[0];
@@ -211,7 +211,7 @@ static void json_parse_string(JsonParser* parser)
 	UNREACHABLE
 }
 
-static inline void json_lexer_advance(JsonParser* parser)
+static inline void json_lexer_advance(JsonParser *parser)
 {
 	json_skip_whitespace(parser);
 	switch (parser->current[0])
@@ -300,7 +300,7 @@ static inline void json_lexer_advance(JsonParser* parser)
 	}
 	UNREACHABLE
 }
-static inline bool consume(JsonParser* parser, JSONTokenType token)
+static inline bool consume(JsonParser *parser, JSONTokenType token)
 {
 	if (parser->current_token_type == token)
 	{
@@ -310,7 +310,7 @@ static inline bool consume(JsonParser* parser, JSONTokenType token)
 	return false;
 }
 
-JSONObject* json_parse_array(JsonParser* parser)
+JSONObject *json_parse_array(JsonParser *parser)
 {
 	CONSUME(T_LBRACKET);
 	if (consume(parser, T_RBRACKET))
@@ -318,20 +318,20 @@ JSONObject* json_parse_array(JsonParser* parser)
 		return &empty_array_val;
 	}
 	size_t capacity = 16;
-	JSONObject* array = json_new_object(parser->allocator, J_ARRAY);
-	JSONObject** elements = parser->allocator(sizeof(JSONObject*) * capacity);
+	JSONObject *array = json_new_object(parser->allocator, J_ARRAY);
+	JSONObject **elements = parser->allocator(sizeof(JSONObject *) * capacity);
 	size_t index = 0;
 	while (1)
 	{
-		JSONObject* parsed = json_parse(parser);
+		JSONObject *parsed = json_parse(parser);
 
 		if (parser->error_message) return &error;
 		if (index >= capacity)
 		{
-			JSONObject** elements_old = elements;
-			size_t copy_size = capacity * sizeof(JSONObject*);
+			JSONObject **elements_old = elements;
+			size_t copy_size = capacity * sizeof(JSONObject *);
 			capacity *= 2;
-			elements = parser->allocator(sizeof(JSONObject*) * capacity);
+			elements = parser->allocator(sizeof(JSONObject *) * capacity);
 			memcpy(elements, elements_old, copy_size);
 		}
 		elements[index++] = parsed;
@@ -352,7 +352,7 @@ JSONObject* json_parse_array(JsonParser* parser)
 	return array;
 }
 
-JSONObject* json_parse_object(JsonParser* parser)
+JSONObject *json_parse_object(JsonParser *parser)
 {
 	CONSUME(T_LBRACE);
 
@@ -362,9 +362,9 @@ JSONObject* json_parse_object(JsonParser* parser)
 	}
 
 	size_t capacity = 16;
-	JSONObject* obj = json_new_object(parser->allocator, J_OBJECT);
-	JSONObject** elements = parser->allocator(sizeof(JSONObject*) * capacity);
-	const char** keys = parser->allocator(sizeof(JSONObject*) * capacity);
+	JSONObject *obj = json_new_object(parser->allocator, J_OBJECT);
+	JSONObject **elements = parser->allocator(sizeof(JSONObject *) * capacity);
+	const char **keys = parser->allocator(sizeof(JSONObject *) * capacity);
 	size_t index = 0;
 	while (1)
 	{
@@ -376,18 +376,18 @@ JSONObject* json_parse_object(JsonParser* parser)
 		// Parse COMMENT LINE
 		if (parser->current_token_type == T_COMMENT)
 		{
-			JSONObject* value = json_parse(parser);
+			JSONObject *value = json_parse(parser);
 
 
 			if (parser->error_message) return NULL;
 			if (index >= capacity)
 			{
-				JSONObject** elements_old = elements;
-				const char** keys_old = keys;
-				size_t copy_size = capacity * sizeof(void*);
+				JSONObject **elements_old = elements;
+				const char **keys_old = keys;
+				size_t copy_size = capacity * sizeof(void *);
 				capacity *= 2;
-				elements = parser->allocator(sizeof(JSONObject*) * capacity);
-				keys = parser->allocator(sizeof(JSONObject*) * capacity);
+				elements = parser->allocator(sizeof(JSONObject *) * capacity);
+				keys = parser->allocator(sizeof(JSONObject *) * capacity);
 				memcpy(elements, elements_old, copy_size);
 				memcpy(keys, keys_old, copy_size);
 			}
@@ -398,23 +398,23 @@ JSONObject* json_parse_object(JsonParser* parser)
 			continue;
 		}
 
-		const char* key = parser->last_string;
+		const char *key = parser->last_string;
 
 		CONSUME(T_STRING);
 		CONSUME(T_COLON);
 
-		JSONObject* value = json_parse(parser);
+		JSONObject *value = json_parse(parser);
 
 
 		if (parser->error_message) return NULL;
 		if (index >= capacity)
 		{
-			JSONObject** elements_old = elements;
-			const char** keys_old = keys;
-			size_t copy_size = capacity * sizeof(void*);
+			JSONObject **elements_old = elements;
+			const char **keys_old = keys;
+			size_t copy_size = capacity * sizeof(void *);
 			capacity *= 2;
-			elements = parser->allocator(sizeof(JSONObject*) * capacity);
-			keys = parser->allocator(sizeof(JSONObject*) * capacity);
+			elements = parser->allocator(sizeof(JSONObject *) * capacity);
+			keys = parser->allocator(sizeof(JSONObject *) * capacity);
 			memcpy(elements, elements_old, copy_size);
 			memcpy(keys, keys_old, copy_size);
 		}
@@ -440,7 +440,7 @@ JSONObject* json_parse_object(JsonParser* parser)
 
 }
 
-JSONObject* json_obj_get(JSONObject* obj, const char* key)
+JSONObject *json_obj_get(JSONObject *obj, const char *key)
 {
 	assert(obj->type == J_OBJECT);
 	for (unsigned i = 0; i < obj->member_len; i++)
@@ -450,7 +450,7 @@ JSONObject* json_obj_get(JSONObject* obj, const char* key)
 	return NULL;
 }
 
-JSONObject* json_parse(JsonParser* parser)
+JSONObject *json_parse(JsonParser *parser)
 {
 	if (parser->error_message) return &error;
 	switch (parser->current_token_type)
@@ -471,7 +471,7 @@ JSONObject* json_parse(JsonParser* parser)
 		return NULL;
 	case T_STRING:
 	{
-		JSONObject* obj = json_new_object(parser->allocator, J_STRING);
+		JSONObject *obj = json_new_object(parser->allocator, J_STRING);
 		obj->type = J_STRING;
 		obj->str = parser->last_string;
 		json_lexer_advance(parser);
@@ -479,7 +479,7 @@ JSONObject* json_parse(JsonParser* parser)
 	}
 	case T_NUMBER:
 	{
-		JSONObject* obj = NULL;
+		JSONObject *obj = NULL;
 		if (parser->last_number == 0)
 		{
 			json_lexer_advance(parser);
@@ -501,7 +501,7 @@ JSONObject* json_parse(JsonParser* parser)
 		json_lexer_advance(parser);
 		return NULL;
 	case T_COMMENT:
-		JSONObject* obj = json_new_object(parser->allocator, J_COMMENT_LINE);
+		JSONObject *obj = json_new_object(parser->allocator, J_COMMENT_LINE);
 		obj->type = J_COMMENT_LINE;
 		obj->str = parser->last_string;
 		json_lexer_advance(parser);
@@ -510,7 +510,7 @@ JSONObject* json_parse(JsonParser* parser)
 	UNREACHABLE
 }
 
-void json_init_string(JsonParser* parser, const char* str, JsonAllocator* allocator)
+void json_init_string(JsonParser *parser, const char *str, JsonAllocator *allocator)
 {
 	parser->current = str;
 	parser->allocator = allocator;
@@ -519,7 +519,7 @@ void json_init_string(JsonParser* parser, const char* str, JsonAllocator* alloca
 	json_lexer_advance(parser);
 }
 
-bool is_freable(JSONObject* obj)
+bool is_freable(JSONObject *obj)
 {
 	if (obj == &error) return false;
 	if (obj == &true_val) return false;
@@ -530,9 +530,9 @@ bool is_freable(JSONObject* obj)
 	return true;
 }
 
-void json_free(JsonDeallocator* deallocator, JSONObject** ptr)
+void json_free(JsonDeallocator *deallocator, JSONObject **ptr)
 {
-	JSONObject* obj = *ptr;
+	JSONObject *obj = *ptr;
 
 	if (!is_freable(obj)) return;
 
@@ -542,7 +542,7 @@ void json_free(JsonDeallocator* deallocator, JSONObject** ptr)
 		for (size_t i = 0; i < obj->member_len; i++)
 		{
 			json_free(deallocator, &obj->members[i]);
-			deallocator((char*)obj->keys[i]);
+			deallocator((char *)obj->keys[i]);
 		}
 		deallocator(obj->keys);
 		deallocator(obj->members);
@@ -555,7 +555,7 @@ void json_free(JsonDeallocator* deallocator, JSONObject** ptr)
 		deallocator(obj->elements);
 		break;
 	case J_STRING:
-		deallocator((char*)obj->str);
+		deallocator((char *)obj->str);
 		break;
 	default:
 		break;
@@ -564,7 +564,7 @@ void json_free(JsonDeallocator* deallocator, JSONObject** ptr)
 	*ptr = NULL;
 }
 
-static inline void print_indent(int indent_level, FILE* file)
+static inline void print_indent(int indent_level, FILE *file)
 {
 	for (int i = 0; i < indent_level; i++)
 	{
@@ -572,7 +572,7 @@ static inline void print_indent(int indent_level, FILE* file)
 	}
 }
 
-static inline void print_json(JSONObject* obj, int indent_level, FILE* file)
+static inline void print_json(JSONObject *obj, int indent_level, FILE *file)
 {
 	if (obj == NULL)
 	{
@@ -671,7 +671,7 @@ static inline void print_json(JSONObject* obj, int indent_level, FILE* file)
 	}
 }
 
-void print_json_to_file(JSONObject* obj, FILE* file)
+void print_json_to_file(JSONObject *obj, FILE *file)
 {
 	print_json(obj, 0, file);
 }

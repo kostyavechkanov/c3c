@@ -10,12 +10,12 @@ extern int llvm_version_major;
 
 static int arg_index;
 static int arg_count;
-static const char** args;
-static const char* current_arg;
-extern const char* llvm_version;
-extern const char* llvm_target;
+static const char **args;
+static const char *current_arg;
+extern const char *llvm_version;
+extern const char *llvm_target;
 
-char* arch_os_target[ARCH_OS_TARGET_LAST + 1] = {
+char *arch_os_target[ARCH_OS_TARGET_LAST + 1] = {
 	[ELF_AARCH64] = "elf-aarch64",
 	[ELF_RISCV32] = "elf-riscv32",
 	[ELF_RISCV64] = "elf-riscv64",
@@ -43,7 +43,7 @@ char* arch_os_target[ARCH_OS_TARGET_LAST + 1] = {
 	[WINDOWS_X64] = "windows-x64",
 };
 
-const char* trust_level[3] = {
+const char *trust_level[3] = {
 	[TRUST_NONE] = "none",
 	[TRUST_INCLUDE] = "include",
 	[TRUST_FULL] = "full",
@@ -286,9 +286,9 @@ static void usage(void)
 		"default, old.");
 }
 
-static const char* check_dir(const char* path)
+static const char *check_dir(const char *path)
 {
-	static char* original_path = NULL;
+	static char *original_path = NULL;
 	if (!original_path)
 	{
 		original_path = getcwd(NULL, 0);
@@ -302,7 +302,7 @@ static const char* check_dir(const char* path)
 
 static inline bool at_end() { return arg_index == arg_count - 1; }
 
-static inline const char* next_arg()
+static inline const char *next_arg()
 {
 	assert(!at_end());
 	current_arg = args[++arg_index];
@@ -311,12 +311,12 @@ static inline const char* next_arg()
 
 static inline bool next_is_opt() { return args[arg_index + 1][0] == '-'; }
 
-INLINE bool match_longopt(const char* name)
+INLINE bool match_longopt(const char *name)
 {
 	return str_eq(&current_arg[2], name);
 }
 
-static inline const char* match_argopt(const char* name)
+static inline const char *match_argopt(const char *name)
 {
 	size_t len = strlen(name);
 	if (memcmp(&current_arg[2], name, len) != 0)
@@ -326,12 +326,12 @@ static inline const char* match_argopt(const char* name)
 	return &current_arg[2 + len + 1];
 }
 
-static inline bool match_shortopt(const char* name)
+static inline bool match_shortopt(const char *name)
 {
 	return strcmp(&current_arg[1], name) == 0;
 }
 
-void append_file(BuildOptions* build_options)
+void append_file(BuildOptions *build_options)
 {
 	if (vec_size(build_options->files) == MAX_FILES)
 	{
@@ -341,7 +341,7 @@ void append_file(BuildOptions* build_options)
 	vec_add(build_options->files, current_arg);
 }
 
-void append_arg(BuildOptions* build_options)
+void append_arg(BuildOptions *build_options)
 {
 	if (vec_size(build_options->args) == MAX_ARGS)
 	{
@@ -351,12 +351,12 @@ void append_arg(BuildOptions* build_options)
 	vec_add(build_options->args, current_arg);
 }
 
-static bool arg_match(const char* candidate)
+static bool arg_match(const char *candidate)
 {
 	return strcmp(current_arg, candidate) == 0;
 }
 
-static void parse_optional_target(BuildOptions* options)
+static void parse_optional_target(BuildOptions *options)
 {
 	if (at_end() || next_is_opt())
 	{
@@ -377,7 +377,7 @@ static void project_usage()
 	PRINTF("  add-target <name>  <target_type>              add a new target to the project");
 }
 
-static void parse_project_subcommand(BuildOptions* options)
+static void parse_project_subcommand(BuildOptions *options)
 {
 
 	if (arg_match("view"))
@@ -406,7 +406,7 @@ static void parse_project_subcommand(BuildOptions* options)
 		current_arg);
 }
 
-static void parse_project_options(BuildOptions* options)
+static void parse_project_options(BuildOptions *options)
 {
 	options->project_options.command = SUBCOMMAND_MISSING;
 	if (at_end())
@@ -420,7 +420,7 @@ static void parse_project_options(BuildOptions* options)
 	parse_project_subcommand(options);
 }
 
-static void parse_command(BuildOptions* options)
+static void parse_command(BuildOptions *options)
 {
 	if (arg_match("init"))
 	{
@@ -482,7 +482,7 @@ static void parse_command(BuildOptions* options)
 			error_exit("error: vendor-fetch needs at least one library.");
 		while (!at_end() && !next_is_opt())
 		{
-			const char* lib = next_arg();
+			const char *lib = next_arg();
 			vec_add(options->libraries_to_fetch, lib);
 		}
 		return;
@@ -576,7 +576,7 @@ static void print_version(void)
 	PRINTF("LLVM default target:       %s", llvm_target);
 }
 
-static void add_linker_arg(BuildOptions* options, const char* arg)
+static void add_linker_arg(BuildOptions *options, const char *arg)
 {
 	if (options->linker_arg_count == MAX_LIB_DIRS)
 	{
@@ -593,16 +593,16 @@ static void add_linker_arg(BuildOptions* options, const char* arg)
  * @param arg the argument to add or undef
  * @param add true if we add, false to undef
  */
-void update_feature_flags(const char*** flags, const char*** removed_flags,
-	const char* arg, bool add)
+void update_feature_flags(const char ***flags, const char ***removed_flags,
+	const char *arg, bool add)
 {
 	// We keep two lists "remove" and "add" lists:
-	const char*** to_remove_from = add ? removed_flags : flags;
+	const char ***to_remove_from = add ? removed_flags : flags;
 
 	// Remove from opposite list using string equality
 	// More elegant would be using a Set or Map, but that's overkill
 	// for something that's likely just 1-2 values.
-	FOREACH_IDX(i, const char*, value, *to_remove_from)
+	FOREACH_IDX(i, const char *, value, *to_remove_from)
 	{
 		if (str_eq(value, arg))
 		{
@@ -612,8 +612,8 @@ void update_feature_flags(const char*** flags, const char*** removed_flags,
 	}
 
 	// First we check that it's not in the list
-	const char*** to_add_to_ref = add ? flags : removed_flags;
-	FOREACH(const char*, value, *to_add_to_ref)
+	const char ***to_add_to_ref = add ? flags : removed_flags;
+	FOREACH(const char *, value, *to_add_to_ref)
 	{
 		// If we have a match, we don't add it.
 		if (str_eq(value, arg))
@@ -624,10 +624,10 @@ void update_feature_flags(const char*** flags, const char*** removed_flags,
 	vec_add(*to_add_to_ref, arg);
 }
 
-static int parse_multi_option(const char* start, unsigned count,
-	const char** elements)
+static int parse_multi_option(const char *start, unsigned count,
+	const char **elements)
 {
-	const char* arg = current_arg;
+	const char *arg = current_arg;
 	int select = str_findlist(start, count, elements);
 	if (select < 0)
 		error_exit("error: %.*s invalid option '%s' given.", (int)(start - arg),
@@ -635,9 +635,9 @@ static int parse_multi_option(const char* start, unsigned count,
 	return select;
 }
 
-static void parse_option(BuildOptions* options)
+static void parse_option(BuildOptions *options)
 {
-	const char* argopt;
+	const char *argopt;
 	switch (current_arg[1])
 	{
 	case '\0':
@@ -716,7 +716,7 @@ static void parse_option(BuildOptions* options)
 		{
 			if (at_end())
 				error_exit("error: -D needs a feature name.");
-			const char* arg = next_arg();
+			const char *arg = next_arg();
 			if (!str_is_valid_constant(arg))
 				error_exit("Invalid feature name '%s', expected an all-uppercase "
 					"constant name.",
@@ -731,7 +731,7 @@ static void parse_option(BuildOptions* options)
 		{
 			if (at_end())
 				error_exit("error: -U needs a feature name.");
-			const char* arg = next_arg();
+			const char *arg = next_arg();
 			if (!str_is_valid_constant(arg))
 				error_exit("Invalid feature name '%s', expected an all-uppercase "
 					"constant name.",
@@ -841,7 +841,7 @@ static void parse_option(BuildOptions* options)
 		{
 			if (at_end() || next_is_opt())
 				error_exit("error: --max-mem needs a valid integer.");
-			const char* maxmem_string = next_arg();
+			const char *maxmem_string = next_arg();
 			int maxmem = atoi(maxmem_string);
 			if (maxmem < 128)
 				PRINTF("Expected a valid positive integer >= 128.");
@@ -851,7 +851,7 @@ static void parse_option(BuildOptions* options)
 		{
 			if (at_end() || next_is_opt())
 				error_exit("error: --symtab needs a valid integer.");
-			const char* symtab_string = next_arg();
+			const char *symtab_string = next_arg();
 			int symtab = atoi(symtab_string);
 			if (symtab < 1024)
 				PRINTF("Expected a valid positive integer >= 1024.");
@@ -1066,7 +1066,7 @@ static void parse_option(BuildOptions* options)
 		{
 			if (at_end() || next_is_opt())
 				error_exit("error: --threads needs a valid integer 1 or higher.");
-			const char* thread_string = next_arg();
+			const char *thread_string = next_arg();
 			int threads = atoi(thread_string);
 			if (threads < 1)
 				PRINTF("Expected a valid integer 1 or higher.");
@@ -1079,7 +1079,7 @@ static void parse_option(BuildOptions* options)
 		{
 			if (at_end() || next_is_opt())
 				error_exit("error: --target needs a arch+os definition.");
-			const char* target = next_arg();
+			const char *target = next_arg();
 			ArchOsTarget target_arch_os = arch_os_target_from_string(target);
 			if (target_arch_os != ARCH_OS_TARGET_DEFAULT)
 			{
@@ -1260,7 +1260,7 @@ static void parse_option(BuildOptions* options)
 		{
 			if (at_end() || next_is_opt())
 				error_exit("error: --lib needs a name.");
-			const char* name = next_arg();
+			const char *name = next_arg();
 			if (!str_is_valid_lowercase_name(name))
 			{
 				if (str_has_suffix(name, ".c3l"))
@@ -1279,7 +1279,7 @@ static void parse_option(BuildOptions* options)
 						"use '-l <name>' instead.",
 						name);
 				}
-				char* name_copy = strdup(name);
+				char *name_copy = strdup(name);
 				str_ellide_in_place(name_copy, 32);
 				if (strchr(name, '/') != NULL ||
 					(PLATFORM_WINDOWS && strchr(name, '\\') != NULL))
@@ -1370,7 +1370,7 @@ static void parse_option(BuildOptions* options)
 	FAIL_WITH_ERR("Cannot process the unknown option \"%s\".", current_arg);
 }
 
-BuildOptions parse_arguments(int argc, const char* argv[])
+BuildOptions parse_arguments(int argc, const char *argv[])
 {
 	arg_count = argc;
 	args = argv;
@@ -1469,7 +1469,7 @@ BuildOptions parse_arguments(int argc, const char* argv[])
 	return build_options;
 }
 
-ArchOsTarget arch_os_target_from_string(const char* target)
+ArchOsTarget arch_os_target_from_string(const char *target)
 {
 	for (unsigned i = 1; i <= ARCH_OS_TARGET_LAST; i++)
 	{

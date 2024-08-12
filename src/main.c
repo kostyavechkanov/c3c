@@ -22,9 +22,9 @@ static void cleanup()
 	memory_release();
 }
 
-const char* compiler_exe_name;
+const char *compiler_exe_name;
 
-int main_real(int argc, const char* argv[])
+int main_real(int argc, const char *argv[])
 {
 	compiler_exe_name = argv[0];
 	bench_begin();
@@ -125,18 +125,18 @@ int main_real(int argc, const char* argv[])
 
 #if (_MSC_VER)
 
-int wmain(int argc, const uint16_t* argv[])
+int wmain(int argc, const uint16_t *argv[])
 {
-	char** args = malloc(sizeof(void*) * (unsigned)argc);
+	char **args = malloc(sizeof(void *) * (unsigned)argc);
 	for (unsigned i = 0; i < (unsigned)argc; i++)
 	{
 		args[i] = win_utf16to8(argv[i]);
 	}
-	return main_real(argc, (const char**)args);
+	return main_real(argc, (const char **)args);
 }
 
 #else
 
-int main(int argc, const char* argv[]) { return main_real(argc, argv); }
+int main(int argc, const char *argv[]) { return main_real(argc, argv); }
 
 #endif

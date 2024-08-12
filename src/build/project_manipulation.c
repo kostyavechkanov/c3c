@@ -1,13 +1,13 @@
 #include "build_internal.h"
 #define PRINTFN(string, ...) fprintf(stdout, string "\n", ##__VA_ARGS__) // NOLINT
 #define PRINTF(string, ...) fprintf(stdout, string, ##__VA_ARGS__) // NOLINT
-static JSONObject* read_project()
+static JSONObject *read_project()
 {
 	size_t size;
-	char* read = file_read_all(PROJECT_JSON, &size);
+	char *read = file_read_all(PROJECT_JSON, &size);
 	JsonParser parser;
 	json_init_string(&parser, read, &malloc_arena);
-	JSONObject* json = json_parse(&parser);
+	JSONObject *json = json_parse(&parser);
 	if (parser.error_message)
 	{
 		error_exit("Error on line %d reading '%s':'%s'", parser.line, PROJECT_JSON, parser.error_message);
@@ -19,7 +19,7 @@ static JSONObject* read_project()
 	return json;
 }
 
-static void print_vec(const char* header, const char** vec, bool opt)
+static void print_vec(const char *header, const char **vec, bool opt)
 {
 	if (opt && !vec) return;
 	PRINTF("%s: ", header);
@@ -28,7 +28,7 @@ static void print_vec(const char* header, const char** vec, bool opt)
 		PRINTFN("*none*");
 		return;
 	}
-	FOREACH_IDX(i, const char*, item, vec)
+	FOREACH_IDX(i, const char *, item, vec)
 	{
 		if (i > 0) PRINTF(", ");
 		PRINTF("%s", item);
@@ -36,32 +36,32 @@ static void print_vec(const char* header, const char** vec, bool opt)
 	PRINTFN("");
 }
 
-static void print_opt_str(const char* header, const char* str)
+static void print_opt_str(const char *header, const char *str)
 {
 	if (!str) return;
 	PRINTFN("%s: %s", header, str);
 }
 
-static void print_opt_setting(const char* header, int setting, const char** values)
+static void print_opt_setting(const char *header, int setting, const char **values)
 {
 	if (setting < 0) return;
 	PRINTFN("%s: %s", header, values[setting]);
 }
 
-static void print_opt_bool(const char* header, int b)
+static void print_opt_bool(const char *header, int b)
 {
 	if (b == -1) return;
 	PRINTF("%s: ", header);
 	PRINTFN(b ? "true" : "false");
 }
 
-static void print_opt_int(const char* header, long v)
+static void print_opt_int(const char *header, long v)
 {
 	if (v < 0) return;
 	PRINTFN("%s: %ld", header, v);
 }
 
-static const char* generate_expected(const char** options, size_t n)
+static const char *generate_expected(const char **options, size_t n)
 {
 	scratch_buffer_clear();
 	for (size_t i = 0; i < n; i++)
@@ -74,7 +74,7 @@ static const char* generate_expected(const char** options, size_t n)
 }
 
 
-const char* optimization_levels[] = {
+const char *optimization_levels[] = {
 	[OPT_SETTING_O0] = "O0",
 	[OPT_SETTING_O1] = "O1",
 	[OPT_SETTING_O2] = "O2",
@@ -85,7 +85,7 @@ const char* optimization_levels[] = {
 	[OPT_SETTING_OTINY] = "Oz"
 };
 
-const char* debug_levels[] = {
+const char *debug_levels[] = {
 	[DEBUG_INFO_NONE] = "none",
 	[DEBUG_INFO_LINE_TABLES] = "line-tables",
 	[DEBUG_INFO_FULL] = "full"
@@ -171,7 +171,7 @@ do {\
     print_opt_int("\t" header, v);\
 } while(0);
 
-static void view_target(const char* name, JSONObject* target)
+static void view_target(const char *name, JSONObject *target)
 {
 	/* General target information */
 	PRINTFN("- %s", name);
@@ -234,15 +234,15 @@ static void view_target(const char* name, JSONObject* target)
 	TARGET_VIEW_BOOL("Return structs on the stack", "x86-stack-struct-return");
 }
 
-void add_target_project(BuildOptions* build_options)
+void add_target_project(BuildOptions *build_options)
 {
-	JSONObject* project_json = read_project();
-	JSONObject* targets_json = json_obj_get(project_json, "targets");
+	JSONObject *project_json = read_project();
+	JSONObject *targets_json = json_obj_get(project_json, "targets");
 
 	for (unsigned i = 0; i < targets_json->member_len; i++)
 	{
-		JSONObject* object = targets_json->members[i];
-		const char* key = targets_json->keys[i];
+		JSONObject *object = targets_json->members[i];
+		const char *key = targets_json->keys[i];
 
 		if (key == NULL)
 		{
@@ -255,12 +255,12 @@ void add_target_project(BuildOptions* build_options)
 		}
 	}
 
-	JSONObject* target_type_obj = MALLOCS(JSONObject);
+	JSONObject *target_type_obj = MALLOCS(JSONObject);
 	target_type_obj->type = J_STRING;
 	target_type_obj->str = targets[build_options->project_options.target_type];
 
 
-	JSONObject* new_target = MALLOCS(JSONObject);
+	JSONObject *new_target = MALLOCS(JSONObject);
 	new_target->type = J_OBJECT;
 
 	new_target->members = malloc_arena(sizeof(JSONObject) * 16);
@@ -276,14 +276,14 @@ void add_target_project(BuildOptions* build_options)
 	targets_json->keys[index] = build_options->project_options.target_name;
 	targets_json->member_len++;
 
-	FILE* file = fopen(PROJECT_JSON, "w");
+	FILE *file = fopen(PROJECT_JSON, "w");
 	print_json_to_file(project_json, file);
 	fclose(file);
 }
 
-void view_project(BuildOptions* build_options)
+void view_project(BuildOptions *build_options)
 {
-	JSONObject* project_json = read_project();
+	JSONObject *project_json = read_project();
 
 	/* General information */
 	VIEW_MANDATORY_STRING_ARRAY("Authors", "authors");
@@ -338,7 +338,7 @@ void view_project(BuildOptions* build_options)
 
 	/* Target information */
 	PRINTFN("Targets: ");
-	JSONObject* targets_json = json_obj_get(project_json, "targets");
+	JSONObject *targets_json = json_obj_get(project_json, "targets");
 	if (!targets_json)
 	{
 		error_exit("No targets found in project.");
@@ -350,8 +350,8 @@ void view_project(BuildOptions* build_options)
 
 	for (unsigned i = 0; i < targets_json->member_len; i++)
 	{
-		JSONObject* object = targets_json->members[i];
-		const char* key = targets_json->keys[i];
+		JSONObject *object = targets_json->members[i];
+		const char *key = targets_json->keys[i];
 
 		if (object->type == J_COMMENT_LINE)
 		{

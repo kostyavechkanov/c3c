@@ -355,7 +355,7 @@ typedef enum
 	TARGET_TYPE_TEST,
 } TargetType;
 
-static const char* targets[6] = {
+static const char *targets[6] = {
 		[TARGET_TYPE_EXECUTABLE] = "executable",
 		[TARGET_TYPE_STATIC_LIB] = "static-lib",
 		[TARGET_TYPE_DYNAMIC_LIB] = "dynamic-lib",
@@ -363,7 +363,7 @@ static const char* targets[6] = {
 		[TARGET_TYPE_TEST] = "test",
 		[TARGET_TYPE_OBJECT_FILES] = "object-files"
 };
-static const char* target_desc[6] = {
+static const char *target_desc[6] = {
 		[TARGET_TYPE_EXECUTABLE] = "Executable",
 		[TARGET_TYPE_STATIC_LIB] = "Static library",
 		[TARGET_TYPE_DYNAMIC_LIB] = "Dynamic library",
@@ -376,54 +376,54 @@ static const char* target_desc[6] = {
 typedef struct ProjectSubcommandOptions_
 {
 	ProjectSubcommand command;
-	const char* target_name;
+	const char *target_name;
 	TargetType target_type;
 } ProjectSubcommandOptions;
 
 typedef struct BuildOptions_
 {
-	const char* lib_dir[MAX_LIB_DIRS];
+	const char *lib_dir[MAX_LIB_DIRS];
 	int lib_dir_count;
-	const char* libs[MAX_LIB_DIRS];
+	const char *libs[MAX_LIB_DIRS];
 	int lib_count;
-	const char* linker_args[MAX_LIB_DIRS];
+	const char *linker_args[MAX_LIB_DIRS];
 	int linker_arg_count;
-	const char* linker_lib_dir[MAX_LIB_DIRS];
+	const char *linker_lib_dir[MAX_LIB_DIRS];
 	int linker_lib_dir_count;
-	const char* linker_libs[MAX_LIB_DIRS];
+	const char *linker_libs[MAX_LIB_DIRS];
 	int linker_lib_count;
-	const char* std_lib_dir;
+	const char *std_lib_dir;
 	VectorConv vector_conv;
 	struct
 	{
-		const char* sdk;
-		const char* def;
+		const char *sdk;
+		const char *def;
 		WinCrtLinking crt_linking;
 	} win;
 	struct
 	{
-		const char* sysroot;
-		const char* min_version;
-		const char* sdk_version;
+		const char *sysroot;
+		const char *min_version;
+		const char *sdk_version;
 	} macos;
 	struct
 	{
-		const char* crt;
-		const char* crtbegin;
+		const char *crt;
+		const char *crtbegin;
 	} linuxpaths;
 	int build_threads;
-	const char** libraries_to_fetch;
-	const char** files;
-	const char** args;
-	const char** feature_names;
-	const char** removed_feature_names;
-	const char* output_name;
-	const char* project_name;
-	const char* target_select;
-	const char* path;
-	const char* template;
+	const char **libraries_to_fetch;
+	const char **files;
+	const char **args;
+	const char **feature_names;
+	const char **removed_feature_names;
+	const char *output_name;
+	const char *project_name;
+	const char *target_select;
+	const char *path;
+	const char *template;
 	LinkerType linker_type;
-	const char* custom_linker_path;
+	const char *custom_linker_path;
 	uint32_t symtab_size;
 	unsigned version;
 	CompilerBackend backend;
@@ -454,16 +454,16 @@ typedef struct BuildOptions_
 	bool print_output;
 	bool print_input;
 	bool run_once;
-	const char* panicfn;
-	const char* benchfn;
-	const char* testfn;
-	const char* cc;
-	const char* build_dir;
-	const char* output_dir;
-	const char* llvm_out;
-	const char* asm_out;
-	const char* obj_out;
-	const char* script_dir;
+	const char *panicfn;
+	const char *benchfn;
+	const char *testfn;
+	const char *cc;
+	const char *build_dir;
+	const char *output_dir;
+	const char *llvm_out;
+	const char *asm_out;
+	const char *obj_out;
+	const char *script_dir;
 	RelocModel reloc_model;
 	X86VectorCapability x86_vector_capability;
 	X86CpuSet x86_cpu_set;
@@ -492,55 +492,55 @@ typedef struct BuildOptions_
 
 typedef struct
 {
-	struct Library__* parent;
+	struct Library__ *parent;
 	ArchOsTarget arch_os;
-	const char* cc;
-	const char* cflags;
+	const char *cc;
+	const char *cflags;
 	WinCrtLinking win_crt;
-	const char** csource_dirs;
-	const char** csources;
-	const char** execs;
-	const char** link_flags;
-	const char** linked_libs;
-	const char** dependencies;
+	const char **csource_dirs;
+	const char **csources;
+	const char **execs;
+	const char **link_flags;
+	const char **linked_libs;
+	const char **dependencies;
 } LibraryTarget;
 
 typedef struct Library__
 {
-	const char* dir;
-	const char* provides;
-	const char** dependencies;
-	const char** execs;
-	const char* cc;
-	const char* cflags;
-	const char** csource_dirs;
+	const char *dir;
+	const char *provides;
+	const char **dependencies;
+	const char **execs;
+	const char *cc;
+	const char *cflags;
+	const char **csource_dirs;
 	WinCrtLinking win_crt;
-	LibraryTarget* target_used;
-	LibraryTarget** targets;
+	LibraryTarget *target_used;
+	LibraryTarget **targets;
 } Library;
 
 typedef struct
 {
 	TargetType type;
-	Library** library_list;
-	LibraryTarget** ccompling_libraries;
-	const char* name;
-	const char* version;
-	const char* langrev;
-	const char** source_dirs;
-	const char** sources;
-	const char** libdirs;
-	const char** libs;
-	const char** linker_libdirs;
-	const char** linker_libs;
-	const char* cpu;
-	const char** link_args;
-	const char* build_dir;
-	const char* object_file_dir;
-	const char* output_dir;
-	const char* ir_file_dir;
-	const char* asm_file_dir;
-	const char* script_dir;
+	Library **library_list;
+	LibraryTarget **ccompling_libraries;
+	const char *name;
+	const char *version;
+	const char *langrev;
+	const char **source_dirs;
+	const char **sources;
+	const char **libdirs;
+	const char **libs;
+	const char **linker_libdirs;
+	const char **linker_libs;
+	const char *cpu;
+	const char **link_args;
+	const char *build_dir;
+	const char *object_file_dir;
+	const char *output_dir;
+	const char *ir_file_dir;
+	const char *asm_file_dir;
+	const char *script_dir;
 	bool run_after_compile;
 	bool delete_after_run;
 	bool generate_benchmark_runner;
@@ -587,17 +587,17 @@ typedef struct
 	LinkerType linker_type;
 	uint32_t symtab_size;
 	uint32_t switchrange_max_size;
-	const char** args;
-	const char* panicfn;
-	const char* benchfn;
-	const char* testfn;
-	const char* cc;
-	const char* cflags;
-	const char** csource_dirs;
-	const char** csources;
-	const char** exec;
-	const char** feature_list;
-	const char* custom_linker_path;
+	const char **args;
+	const char *panicfn;
+	const char *benchfn;
+	const char *testfn;
+	const char *cc;
+	const char *cflags;
+	const char **csource_dirs;
+	const char **csources;
+	const char **exec;
+	const char **feature_list;
+	const char *custom_linker_path;
 	struct
 	{
 		SoftFloat soft_float : 3;
@@ -613,26 +613,26 @@ typedef struct
 	} feature;
 	struct
 	{
-		const char* sysroot;
-		const char* min_version;
-		const char* sdk_version;
-		MacSDK* sdk;
+		const char *sysroot;
+		const char *min_version;
+		const char *sdk_version;
+		MacSDK *sdk;
 	} macos;
 	struct
 	{
-		const char* sdk;
-		const char* def;
+		const char *sdk;
+		const char *def;
 		WinCrtLinking crt_linking;
 		bool use_win_subsystem;
 	} win;
 	struct
 	{
-		const char* crt;
-		const char* crtbegin;
+		const char *crt;
+		const char *crtbegin;
 	} linuxpaths;
 } BuildTarget;
 
-static const char* x86_cpu_set[8] = {
+static const char *x86_cpu_set[8] = {
 	[X86CPU_BASELINE] = "baseline",[X86CPU_SSSE3] = "ssse3",
 	[X86CPU_SSE4] = "sse4",[X86CPU_AVX1] = "avx1",
 	[X86CPU_AVX2_V1] = "avx2-v1",[X86CPU_AVX2_V2] = "avx2-v2",
@@ -677,13 +677,13 @@ static BuildTarget default_build_target = {
 	.switchrange_max_size = DEFAULT_SWITCHRANGE_MAX_SIZE,
 };
 
-BuildOptions parse_arguments(int argc, const char* argv[]);
-ArchOsTarget arch_os_target_from_string(const char* target);
+BuildOptions parse_arguments(int argc, const char *argv[]);
+ArchOsTarget arch_os_target_from_string(const char *target);
 bool command_accepts_files(CompilerCommand command);
 bool command_passes_args(CompilerCommand command);
-void update_build_target_with_opt_level(BuildTarget* target,
+void update_build_target_with_opt_level(BuildTarget *target,
 	OptimizationSetting level);
-void create_project(BuildOptions* build_options);
-void create_library(BuildOptions* build_options);
-void resolve_libraries(BuildTarget* build_target);
-void view_project(BuildOptions* build_options);
+void create_project(BuildOptions *build_options);
+void create_library(BuildOptions *build_options);
+void resolve_libraries(BuildTarget *build_target);
+void view_project(BuildOptions *build_options);
