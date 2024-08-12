@@ -51,7 +51,8 @@ typedef enum
 typedef enum
 {
 	SUBCOMMAND_MISSING = 0,
-	SUBCOMMAND_VIEW
+	SUBCOMMAND_VIEW,
+	SUBCOMMAND_ADD
 } ProjectSubcommand;
 
 typedef enum
