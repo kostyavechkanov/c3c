@@ -2,6 +2,8 @@
 #include "json.h"
 
 
+#define PRINTF(file, string, ...) fprintf(file, string, ##__VA_ARGS__) /* NOLINT */
+
 JSONObject error = { .type = J_ERROR };
 JSONObject true_val = { .type = J_BOOL, .b = true };
 JSONObject false_val = { .type = J_BOOL, .b = false };
@@ -11,46 +13,40 @@ JSONObject empty_obj_val = { .type = J_OBJECT, .member_len = 0 };
 
 #define CONSUME(token_) do { if (!consume(parser, token_)) { json_error(parser, "Unexpected character encountered."); return &error; } } while(0)
 
-static inline void json_skip_whitespace(JsonParser *parser)
+static inline void json_skip_whitespace(JsonParser * parser)
 {
 	char c;
 	while (1)
 	{
-		RETRY:
+	RETRY:
 		switch (parser->current[0])
 		{
-			case '/':
-				c = parser->current[1];
-				if (c == '/')
-				{
-					parser->current++;
-					while ((c = (++parser->current)[0]) && c != '\n') {}
-					goto RETRY;
-				}
-				if (c == '*')
-				{
-					parser->current++;
-					while ((c = (++parser->current)[0]))
-					{
-						if (c == '*' && parser->current[1] == '/')
-						{
-							parser->current += 2;
-							goto RETRY;
-						}
-					}
-					goto RETRY;
-				}
-				return;
-			case '\n':
-				parser->line++;
-			case '\r':
-			case ' ':
-			case '\v':
-			case '\t':
+		case '/':
+			c = parser->current[1];
+			if (c == '*')
+			{
 				parser->current++;
-				continue;
-			default:
-				return;
+				while ((c = (++parser->current)[0]))
+				{
+					if (c == '*' && parser->current[1] == '/')
+					{
+						parser->current += 2;
+						goto RETRY;
+					}
+				}
+				goto RETRY;
+			}
+			return;
+		case '\n':
+			parser->line++;
+		case '\r':
+		case ' ':
+		case '\v':
+		case '\t':
+			parser->current++;
+			continue;
+		default:
+			return;
 		}
 	}
 }
@@ -98,6 +94,43 @@ static void json_parse_number(JsonParser *parser)
 	value += decimals;
 	parser->current_token_type = T_NUMBER;
 	parser->last_number = value;
+}
+
+static void json_parse_comment_line(JsonParser* parser)
+{
+	parser->current_token_type = T_COMMENT;
+
+	const char* current = ++parser->current;
+	char c;
+	while (c = current++[0], c != '\0' && c != '\n') { current++; }
+
+	size_t max_size = current - parser->current;
+	char* str = parser->allocator(max_size + 1);
+	char* str_current = str;
+	parser->last_string = str;
+	str_current[0] = '\0';
+
+	while (1)
+	{
+		c = parser->current++[0];
+		if (c == '\0')
+		{
+			str_current[0] = '\0';
+			return;
+		}
+		if (c == '\n')
+		{
+			parser->last_string = str;
+			str_current[0] = '\0';
+			
+			return;
+		}
+		
+		str_current++[0] = c;
+	}
+
+	UNREACHABLE
+
 }
 
 static void json_parse_string(JsonParser *parser)
@@ -253,6 +286,14 @@ static inline void json_lexer_advance(JsonParser *parser)
 			parser->current += 4;
 			parser->current_token_type = T_NULL;
 			return;
+		case '/':
+			char c = parser->current[1];
+			if (c == '/')
+			{
+				parser->current++;
+				json_parse_comment_line(parser);
+			}
+			return;
 		default:
 			json_error(parser, "Unexpected symbol found.");
 			return;
@@ -283,6 +324,7 @@ JSONObject *json_parse_array(JsonParser *parser)
 	while (1)
 	{
 		JSONObject *parsed = json_parse(parser);
+
 		if (parser->error_message) return &error;
 		if (index >= capacity)
 		{
@@ -293,6 +335,13 @@ JSONObject *json_parse_array(JsonParser *parser)
 			memcpy(elements, elements_old, copy_size);
 		}
 		elements[index++] = parsed;
+
+		if (parsed->type == J_COMMENT_LINE)
+		{
+			if (consume(parser, T_RBRACKET)) break;
+			continue;
+		}
+
 		if (consume(parser, T_RBRACKET)) break;
 		CONSUME(T_COMMA);
 		// Allow trailing comma
@@ -306,10 +355,12 @@ JSONObject *json_parse_array(JsonParser *parser)
 JSONObject *json_parse_object(JsonParser *parser)
 {
 	CONSUME(T_LBRACE);
+
 	if (consume(parser, T_RBRACE))
 	{
 		return &empty_obj_val;
 	}
+
 	size_t capacity = 16;
 	JSONObject *obj = json_new_object(parser->allocator, J_OBJECT);
 	JSONObject** elements = parser->allocator(sizeof(JSONObject*) * capacity);
@@ -317,15 +368,48 @@ JSONObject *json_parse_object(JsonParser *parser)
 	size_t index = 0;
 	while (1)
 	{
-		const char *key = parser->last_string;
+		if (consume(parser, T_RBRACE)) {
+			break;
+		}
+
+		// Parse COMMENT LINE
+		if (parser->current_token_type == T_COMMENT)
+		{
+			JSONObject* value = json_parse(parser);
+
+
+			if (parser->error_message) return NULL;
+			if (index >= capacity)
+			{
+				JSONObject** elements_old = elements;
+				const char** keys_old = keys;
+				size_t copy_size = capacity * sizeof(void*);
+				capacity *= 2;
+				elements = parser->allocator(sizeof(JSONObject*) * capacity);
+				keys = parser->allocator(sizeof(JSONObject*) * capacity);
+				memcpy(elements, elements_old, copy_size);
+				memcpy(keys, keys_old, copy_size);
+			}
+
+			keys[index] = NULL;
+			elements[index++] = value;
+
+			continue;
+		}
+
+		const char* key = parser->last_string;
+
 		CONSUME(T_STRING);
 		CONSUME(T_COLON);
-		JSONObject *value = json_parse(parser);
+
+		JSONObject* value = json_parse(parser);
+
+
 		if (parser->error_message) return NULL;
 		if (index >= capacity)
 		{
-			JSONObject **elements_old = elements;
-			const char **keys_old = keys;
+			JSONObject** elements_old = elements;
+			const char** keys_old = keys;
 			size_t copy_size = capacity * sizeof(void*);
 			capacity *= 2;
 			elements = parser->allocator(sizeof(JSONObject*) * capacity);
@@ -333,8 +417,12 @@ JSONObject *json_parse_object(JsonParser *parser)
 			memcpy(elements, elements_old, copy_size);
 			memcpy(keys, keys_old, copy_size);
 		}
+
 		keys[index] = key;
 		elements[index++] = value;
+
+		if (consume(parser, T_COMMA)) continue;
+
 		if (consume(parser, T_RBRACE)) break;
 		if (!consume(parser, T_COMMA))
 		{
@@ -356,7 +444,7 @@ JSONObject *json_obj_get(JSONObject *obj, const char *key)
 	assert(obj->type == J_OBJECT);
 	for (unsigned i = 0; i < obj->member_len; i++)
 	{
-		if (strcmp(obj->keys[i], key) == 0) return obj->elements[i];
+		if (obj->keys[i] != 0 && strcmp(obj->keys[i], key) == 0) return obj->elements[i];
 	}
 	return NULL;
 }
@@ -411,6 +499,12 @@ JSONObject *json_parse(JsonParser *parser)
 		case T_NULL:
 			json_lexer_advance(parser);
 			return NULL;
+		case T_COMMENT:
+			JSONObject* obj = json_new_object(parser->allocator, J_COMMENT_LINE);
+			obj->type = J_COMMENT_LINE;
+			obj->str = parser->last_string;
+			json_lexer_advance(parser);
+			return obj;
 	}
 	UNREACHABLE
 }
@@ -468,3 +562,108 @@ void json_free(JsonDeallocator *deallocator, JSONObject **ptr)
 	deallocator(*ptr);
 	*ptr = NULL;
 }
+
+static inline void print_indent(int indent_level, FILE* file)
+{
+	for (int i = 0; i < indent_level; i++) {
+		fputs("  ", file);
+	}
+}
+
+static inline void print_json(JSONObject* obj, int indent_level, FILE* file)
+{
+	if (obj == NULL) {
+		return;
+	}
+	
+	switch (obj->type) {
+	case J_BOOL:
+		PRINTF(file, "%s", obj->b ? "true" : "false");
+		break;
+	case J_STRING:
+		PRINTF(file, "\"%s\"", obj->str);
+		break;
+	case J_NUMBER:
+		PRINTF(file, "%f", obj->f);
+		break;
+	case J_ARRAY:
+		
+		fputs(" [ ", file);
+
+		if (obj->array_len == 0)
+		{
+			fputs(" ]", file);
+			break;
+		}
+
+		bool should_print_item_per_line = false;
+
+		for (size_t i = 0; i < obj->array_len; i++) {
+			if (obj->elements[i]->type == J_OBJECT) {
+				should_print_item_per_line = true;
+				break;
+			}
+
+			if (obj->elements[i]->type == J_COMMENT_LINE) {
+				should_print_item_per_line = true;
+				break;
+			}
+		}
+
+		if (!should_print_item_per_line && obj->array_len < 5)
+		{
+			for (size_t i = 0; i < obj->array_len; i++) {
+				if (i != 0) fputs(", ", file);
+				print_json(obj->elements[i], indent_level, file);
+			}
+			fputs(" ]", file);
+			break;
+		}
+
+		fputs("\n", file);
+		for (size_t i = 0; i < obj->array_len; i++) {
+			if (obj->elements[i]->type == J_COMMENT_LINE)
+			{
+				print_json(obj->elements[i], indent_level, file);
+				continue;
+			}
+
+			print_indent(indent_level + 1, file);
+			print_json(obj->elements[i], indent_level + 1, file);
+			fputs(",\n", file);
+		}
+
+		fputs(" ]", file);
+		break;
+	case J_OBJECT:
+		fputs("{\n", file);
+		for (size_t i = 0; i < obj->member_len; i++) 
+		{
+			if (obj->members[i]->type == J_COMMENT_LINE)
+			{
+				print_json(obj->members[i], indent_level, file);
+				continue;
+			}
+
+			print_indent(indent_level+1, file);	
+			PRINTF(file, "\"%s\": ", obj->keys[i]);
+			print_json(obj->members[i], indent_level + 1, file);
+			fputs(",\n", file);
+		}
+		print_indent(indent_level, file);
+		fputs("}", file);
+		break;
+	case J_COMMENT_LINE:
+		print_indent(indent_level+1, file);
+		PRINTF(file, "//%s\n", obj->str);
+		break;
+	default:
+		break;
+	}
+}
+
+void print_json_to_file(JSONObject* obj, FILE* file) 
+{
+	print_json(obj, 0, file);
+}
+

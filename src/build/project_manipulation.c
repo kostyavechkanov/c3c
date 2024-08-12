@@ -234,6 +234,53 @@ static void view_target(const char* name, JSONObject* target)
 	TARGET_VIEW_BOOL("Return structs on the stack", "x86-stack-struct-return");
 }
 
+void add_target_project(BuildOptions *build_options)
+{
+	JSONObject* project_json = read_project();
+	JSONObject* targets_json = json_obj_get(project_json, "targets");
+
+	for (unsigned i = 0; i < targets_json->member_len; i++)
+	{
+		JSONObject* object = targets_json->members[i];
+		const char* key = targets_json->keys[i];
+
+		if (key == NULL)
+		{
+			continue;
+		}
+
+		if (strcmp(key, build_options->project_options.target_name) == 0)
+		{
+			error_exit("Target with name '%s' already exists", key);
+		}		
+	}
+
+	JSONObject* target_type_obj = malloc_arena(sizeof(JSONObject));
+	target_type_obj->type = J_STRING;
+	target_type_obj->str = targets[build_options->project_options.target_type];
+
+
+	JSONObject* new_target = malloc_arena(sizeof(JSONObject));
+	new_target->type = J_OBJECT;
+
+	new_target->members = malloc_arena(sizeof(JSONObject) * 16);
+	new_target->keys = malloc_arena(sizeof(JSONObject) * 16);
+
+	new_target->keys[0] = "type";
+	new_target->members[0] = target_type_obj;
+	new_target->member_len = 1;
+
+
+	size_t index = targets_json->member_len;
+	targets_json->members[index] = new_target;
+	targets_json->keys[index] = build_options->project_options.target_name;
+	targets_json->member_len++;
+
+	FILE* file = fopen(PROJECT_JSON, "w");
+	print_json_to_file(project_json, file);
+	fclose(file);
+}
+
 void view_project(BuildOptions *build_options) 
 {
 	JSONObject* project_json = read_project();
@@ -305,6 +352,12 @@ void view_project(BuildOptions *build_options)
 	{
 		JSONObject *object = targets_json->members[i];
 		const char *key = targets_json->keys[i];
+
+		if (object->type == J_COMMENT_LINE)
+		{
+			continue;
+		}
+
 		if (object->type != J_OBJECT)
 		{
 			error_exit("Invalid data in target '%s'", key);
